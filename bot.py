@@ -80,20 +80,27 @@ def main_menu():
 
 def show_home(api,cid,store):
     store.set_section(cid,'portrait')
+    birth = store.current_birth(cid)
+    selected = ('Поточна дата: '+birth+'. Щоб змінити її, надішліть нову дату.\n\n') if birth else ''
     api.say(cid,'Вітаю! Це бот Надії Царенко.\n\n'
         'Оберіть розділ. «Портрет 33П» та «Карма +/−» уже доступні, інші розділи готуються.\n\n'
-        +access_text(store,cid),reply_markup=main_menu())
+        +selected+access_text(store,cid),reply_markup=main_menu())
 
-def show_section(api,cid,key,store):
+def show_section(api,cid,key,store,prices):
     if key not in SECTIONS: return
+    birth = store.current_birth(cid)
     if key == 'portrait':
         store.set_section(cid,'portrait')
+        if birth:
+            show_portrait(api,cid,birth,store,prices); return
         text = ('Портрет 33П\n\nНадішліть дату народження у форматі ДД.ММ.РРРР. '
                 'Наприклад: 16.09.1998.\nВи отримаєте схему та описи позицій. '
                 '21 і 30 відкриті для всіх; усі 33 доступні під час повного доступу.')
     elif key == 'karma':
         if store.membership_until(cid) > int(time.time()):
             store.set_section(cid,'karma')
+            if birth:
+                show_karma(api,cid,birth,store); return
             text = ('Карма +/−\n\nНадішліть дату народження у форматі ДД.ММ.РРРР. '
                     'Ви отримаєте п’ять позицій плюсової та п’ять позицій мінусової карми. '
                     'Зараз доступний числовий розрахунок. Трактування готуються.')
@@ -104,6 +111,7 @@ def show_section(api,cid,key,store):
     else:
         text = SECTIONS[key]+'\n\nЦей розділ готується. Розрахунок ще недоступний. '
         text += 'Зараз Ви можете скористатися розділом «Портрет 33П».'
+        if birth: text += '\n\nПоточна дата: '+birth+'.'
     api.say(cid,text,reply_markup={'inline_keyboard':[
         [{'text':'Головне меню','callback_data':'home'}]]})
 
@@ -116,10 +124,19 @@ def show_karma(api,cid,birth,store):
     result = calculate_karma(birth)
     api.call('sendPhoto',{'chat_id':cid,'caption':'Карма +/− · '+birth+'\nНадія Царенко\n\n'
         'Для нового розрахунку надішліть іншу дату.',
-        'reply_markup':{'inline_keyboard':[[{'text':'Завантажити PNG','callback_data':'karma_png:'+birth}],
-                                         [{'text':'Портрет 33П для цієї дати','callback_data':'menu:'+birth}],
+        'reply_markup':{'inline_keyboard':[[{'text':'Портрет 33П','callback_data':'section:portrait'}],
                                          [{'text':'Головне меню','callback_data':'home'}]]}},
         ('photo',draw_karma(result),'karma.png'))
+
+def show_portrait(api,cid,birth,store,prices):
+    calculated,_ = calculate(birth)
+    api.call('sendPhoto',{'chat_id':cid,'caption':'Ваш портрет · '+birth+'\nНадія Царенко',
+        'reply_markup':{'inline_keyboard':[
+            [{'text':'Відкрити 33 позиції','callback_data':'menu:'+birth}],
+            [{'text':'Карма +/−','callback_data':'section:karma'}],
+            [{'text':'Головне меню','callback_data':'home'}]]}},
+        ('photo',draw_portrait(birth,calculated)))
+    show_menu(api,cid,birth,store,prices)
 
 TERMS = (
     'Умови доступу\n\n'
@@ -183,6 +200,7 @@ def show_menu(api, cid, birth, store, prices):
         price = f' · {prices.bundle} ⭐' if prices.bundle else ''
         rows.append([{'text': 'Відкрити всі 33 позиції'+price, 'callback_data': 'offer:'+birth+':all'}])
     rows.append([{'text': 'Мій доступ', 'callback_data': 'access'}])
+    rows.append([{'text':'Карма +/−','callback_data':'section:karma'}])
     rows.append([{'text':'Головне меню','callback_data':'home'}])
     price = f'Одна платна позиція: {prices.single} ⭐.\n' if prices.single else ''
     api.say(cid, 'Ваші позиції · '+birth+'\n\n'
@@ -356,12 +374,16 @@ def handle(api, update, store, prices):
         action = args[0]
         if action == 'home': show_home(api,cid,store); return
         if action == 'section':
-            if len(args) == 2: show_section(api,cid,args[1],store)
+            if len(args) == 2: show_section(api,cid,args[1],store,prices)
             return
         if action == 'access': show_access(api,cid,store); return
         if action == 'purchases': show_purchases(api,cid,store); return
         if len(args) < 2: return
         birth = args[1]
+        # Navigation and position buttons follow the latest date typed by this user.
+        # Historical invoice/offer payloads keep their original date and consent.
+        if action in ('menu','positions','calc','position'):
+            birth = store.current_birth(cid) or birth
         try: calculate(birth)
         except ValueError:
             api.say(cid,'Надішліть дату народження у форматі ДД.ММ.РРРР.'); return
@@ -396,8 +418,11 @@ def handle(api, update, store, prices):
     command = text.split(' ',1)[0].split('@')[0]
     if command in ('/start','/help','/menu'):
         show_home(api,cid,store); return
-    if command == '/portrait': show_section(api,cid,'portrait',store); return
-    if command == '/karma': show_section(api,cid,'karma',store); return
+    if command == '/portrait': show_section(api,cid,'portrait',store,prices); return
+    if command == '/karma': show_section(api,cid,'karma',store,prices); return
+    if command == '/forgetdate':
+        store.forget_birth(cid)
+        api.say(cid,'Поточну дату видалено. Надішліть нову дату народження у форматі ДД.ММ.РРРР.'); return
     if command == '/terms': api.say(cid,TERMS); return
     if command in ('/paysupport','/support'):
         api.say(cid,'Допомога з покупками та поверненнями: '+SUPPORT+'. '
@@ -408,7 +433,9 @@ def handle(api, update, store, prices):
             'придбані позиції, суму Stars та ідентифікатор платежу. Ці дані дозволяють '
             'повторно відкривати оплачені описи та обробляти повернення. '
             'Дати з рахунків зберігаються навіть до завершення оплати. '
-            'Дати, для яких Ви лише переглянули схему й не створювали рахунку, окремо не записуються. '
+            'Остання введена дата народження зберігається у Вашому акаунті для перемикання між розділами. '
+            'Нова дата замінює попередню поточну дату. Команда /forgetdate видаляє поточну дату, '
+            'але не видаляє дати з історії покупок або повідомлень Telegram. '
             'Обраний розділ зберігається для Вашого акаунту. Повідомлення та результати залишаються в історії чату Telegram. '
             'Для персональних запрошень зберігаються захищений відбиток номера телефону, '
             'строк доступу, Telegram ID після активації та стан запрошення. '
@@ -419,15 +446,10 @@ def handle(api, update, store, prices):
     if command == '/access': show_access(api,cid,store); return
     try: calculated,_ = calculate(text)
     except ValueError as e: api.say(cid,str(e)); return
+    store.set_current_birth(cid,text)
     if store.section(cid) == 'karma':
         show_karma(api,cid,text,store); return
-    api.call('sendPhoto',{'chat_id':cid,'caption':'Ваш портрет · '+text+'\nНадія Царенко',
-        'reply_markup':{'inline_keyboard':[
-            [{'text':'Відкрити 33 позиції','callback_data':'menu:'+text}],
-            [{'text':'Завантажити PNG','callback_data':'png:'+text}],
-            [{'text':'Головне меню','callback_data':'home'}]]}},
-        ('photo',draw_portrait(text,calculated)))
-    show_menu(api,cid,text,store,prices)
+    show_portrait(api,cid,text,store,prices)
 
 def process_refunds(api,store):
     for row in store.pending_refunds()[:10]:
@@ -456,7 +478,7 @@ def main():
     api.call('getMe')
     if api.call('getWebhookInfo').get('url'):
         raise SystemExit('У бота вже налаштований webhook. Вимкніть його перед запуском polling.')
-    commands = [('start','Головне меню'),('menu','Розділи бота'),('portrait','Портрет 33П'),('karma','Карма +/−'),('access','Мій доступ'),('purchases','Попередні покупки'),('myid','Мій Telegram ID'),('terms','Умови покупки'),
+    commands = [('start','Головне меню'),('menu','Розділи бота'),('portrait','Портрет 33П'),('karma','Карма +/−'),('forgetdate','Видалити поточну дату'),('access','Мій доступ'),('purchases','Попередні покупки'),('myid','Мій Telegram ID'),('terms','Умови покупки'),
                 ('paysupport','Допомога з оплатою'),('privacy','Обробка даних')]
     api.call('setMyCommands',{'commands':[{'command':c,'description':d} for c,d in commands]})
     offset = store.offset()

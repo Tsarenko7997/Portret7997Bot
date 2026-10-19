@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 from portrait import calculate, calculate_karma
 from render import draw_portrait, draw_karma
 from catalog import POSITIONS, FREE, description, chunks
-from karma_catalog import negative_description
+from karma_catalog import negative_description, positive_description
 from payments import Store, Prices, PaymentError
 
 ROOT=Path(__file__).parent
@@ -106,8 +106,7 @@ def show_section(api,cid,key,store,prices):
                 show_karma(api,cid,birth,store); return
             text = ('Карма +/−\n\nНадішліть дату народження у форматі ДД.ММ.РРРР. '
                     'Ви отримаєте п’ять позицій плюсової та п’ять позицій мінусової карми. '
-                    'Для мінусової карми доступні описи всіх 22 арканів. '
-                    'Плюсова карма поки має числовий розрахунок.')
+                    'Для плюсової та мінусової карми доступні описи всіх 22 арканів.')
         else:
             store.set_section(cid,'portrait')
             text = ('Карма +/−\n\nРозрахунок карми доступний під час повного місячного доступу.\n\n'
@@ -129,16 +128,25 @@ def show_karma(api,cid,birth,store):
     buttons = [{'text':f'Мінус {i} · {value}',
                 'callback_data':f'karma_minus:{birth}:{i}'}
                for i,value in enumerate(result['negative'],1)]
+    positive_buttons = [{'text':f'Плюс {i} · {value}',
+                         'callback_data':f'karma_plus:{birth}:{i}'}
+                        for i,value in enumerate(result['positive'],1)]
     api.call('sendPhoto',{'chat_id':cid,'caption':'Карма +/− · '+birth+'\nInstagram: @lakshmi_775\n\n'
-        'Натисніть позицію мінусової карми нижче, щоб прочитати її опис. '
-        'Трактування плюсової карми готуються.\n\n'
+        'Натисніть позицію плюсової або мінусової карми нижче, щоб прочитати її опис.\n\n'
         'Для нового розрахунку надішліть іншу дату.',
-        'reply_markup':{'inline_keyboard':[buttons[:3],buttons[3:],
+        'reply_markup':{'inline_keyboard':[positive_buttons[:3],positive_buttons[3:],
+                                         buttons[:3],buttons[3:],
                                          [{'text':'Портрет','callback_data':'section:portrait'}],
                                          [{'text':'Головне меню','callback_data':'home'}]]}},
         ('photo',draw_karma(result),'karma.png'))
 
 def show_karma_minus(api,cid,birth,position,store):
+    show_karma_interpretation(api,cid,birth,position,store,positive=False)
+
+def show_karma_plus(api,cid,birth,position,store):
+    show_karma_interpretation(api,cid,birth,position,store,positive=True)
+
+def show_karma_interpretation(api,cid,birth,position,store,positive=False):
     # A forged or old callback must never bypass the current membership window.
     if store.membership_until(cid) <= int(time.time()):
         show_karma(api,cid,birth,store)
@@ -146,11 +154,13 @@ def show_karma_minus(api,cid,birth,position,store):
     if not 1 <= position <= 5:
         return
     store.set_section(cid,'karma')
-    arcanum = calculate_karma(birth)['negative'][position-1]
+    arcanum = calculate_karma(birth)['positive' if positive else 'negative'][position-1]
     try:
-        text = negative_description(position,arcanum,birth)
+        describe = positive_description if positive else negative_description
+        text = describe(position,arcanum,birth)
     except (OSError,ValueError,KeyError,lzma.LZMAError):
-        api.say(cid,'Описи мінусової карми тимчасово недоступні. Напишіть '+SUPPORT+'.')
+        label = 'плюсової' if positive else 'мінусової'
+        api.say(cid,'Описи '+label+' карми тимчасово недоступні. Напишіть '+SUPPORT+'.')
         return
     messages = list(chunks(text))
     for i,part in enumerate(messages):
@@ -419,14 +429,15 @@ def handle(api, update, store, prices):
         birth = args[1]
         # Navigation and position buttons follow the latest date typed by this user.
         # Historical invoice/offer payloads keep their original date and consent.
-        if action in ('menu','positions','calc','position','karma_minus'):
+        if action in ('menu','positions','calc','position','karma_minus','karma_plus'):
             birth = store.current_birth(cid) or birth
         try: calculate(birth)
         except ValueError:
             api.say(cid,'Надішліть дату народження у форматі ДД.ММ.РРРР.'); return
-        if action == 'karma_minus':
-            if len(args) == 3 and args[2].isdigit() and 1 <= int(args[2]) <= 5:
-                show_karma_minus(api,cid,birth,int(args[2]),store)
+        if action in ('karma_minus','karma_plus'):
+            if len(args) == 3 and args[2] in ('1','2','3','4','5'):
+                show = show_karma_plus if action == 'karma_plus' else show_karma_minus
+                show(api,cid,birth,int(args[2]),store)
             return
         if action in ('menu','positions','calc'):
             store.set_section(cid,'portrait')

@@ -7,6 +7,8 @@ import sqlite3
 import urllib.request
 import urllib.error
 from pathlib import Path
+from datetime import datetime
+from zoneinfo import ZoneInfo
 from portrait import calculate
 from render import draw_portrait
 from catalog import POSITIONS, FREE, description, chunks
@@ -58,7 +60,15 @@ class Telegram:
 
 SUPPORT = '@Lakshmi_775'
 TERMS = (
-    'Умови покупки\n\n'
+    'Умови доступу\n\n'
+    'Персональне запрошення відкриває всі 33 позиції для необмеженої кількості дат народження '
+    'в одному Telegram акаунті на один календарний місяць від підтвердження номера. '
+    'Точний строк відображається в /access за київським часом. Повторне відкриття посилання '
+    'не починає новий місяць. Посилання можна активувати протягом 7 днів. '
+    'Автор може відкликати доступ. Після завершення строку позиції 21 і 30 залишаються відкритими. '
+    'Запланована вартість продовження: 100 грн на місяць. Оплату продовження поки не підключено, '
+    'автоматичних списань немає.\n\n'
+    'Умови попередніх окремих покупок, якщо вони були:\n'
     'Ви купуєте текст опису позиції для зазначеної дати народження у своєму Telegram акаунті. '
     'Одна позиція відкриває лише її опис і Ваш аркан. П15 включає обидва результати. '
     'Пакет відкриває всі 33 позиції тільки для однієї зазначеної дати. '
@@ -78,20 +88,40 @@ TERMS = (
 def back_menu(birth):
     return {'inline_keyboard': [[{'text': 'Усі 33 позиції', 'callback_data': 'menu:'+birth}]]}
 
+def access_text(store,cid):
+    until = store.membership_until(cid)
+    if until > int(time.time()):
+        end = datetime.fromtimestamp(until,ZoneInfo('Europe/Kyiv')).strftime('%d.%m.%Y о %H:%M')
+        return ('Усі 33 позиції відкриті для необмеженої кількості дат народження.\n'
+                'Повний доступ діє до '+end+' за київським часом.\n\n'
+                'Надішліть будь-яку дату у форматі ДД.ММ.РРРР.')
+    if store.had_membership(cid):
+        return ('Ваш місяць повного доступу завершився.\n\n'
+                'Для продовження доступу ще на місяць сплатіть 100 грн.\n'
+                'Після продовження Вам будуть доступні всі 33 позиції та необмежена кількість дат.\n\n'
+                'Оплату продовження поки не підключено. Позиції 21 і 30 залишаються безкоштовними. '
+                'Допомога: '+SUPPORT+'.')
+    return ('Позиції 21 і 30 безкоштовні для всіх. Персональне запрошення автора відкриває '
+            'всі 33 позиції для необмеженої кількості дат на один місяць від активації.\n\n'
+            'Надішліть дату народження у форматі ДД.ММ.РРРР.')
+
+def show_access(api,cid,store):
+    api.say(cid,access_text(store,cid),reply_markup={'remove_keyboard':True})
+
 def show_menu(api, cid, birth, store, prices):
     owned = store.owned(cid,birth)
     buttons = [{'text': ('' if n in owned else '🔒 ') + str(n),
                 'callback_data': f'position:{birth}:{n}'} for n in range(1,34)]
     rows = [buttons[i:i+6] for i in range(0,33,6)]
-    if len(owned) < 33:
+    if len(owned) < 33 and prices.bundle:
         price = f' · {prices.bundle} ⭐' if prices.bundle else ''
         rows.append([{'text': 'Відкрити всі 33 позиції'+price, 'callback_data': 'offer:'+birth+':all'}])
-    rows.append([{'text': 'Мій доступ', 'callback_data': 'purchases'}])
+    rows.append([{'text': 'Мій доступ', 'callback_data': 'access'}])
     price = f'Одна платна позиція: {prices.single} ⭐.\n' if prices.single else ''
     api.say(cid, 'Ваші позиції · '+birth+'\n\n'
         '21 і 30 відкриваються безкоштовно. Натисніть номер, щоб переглянути опис.\n'
         '🔒 Доступ до позиції для цієї дати закритий.\n'+price+
-        '\nВідкритий доступ зберігається у Вашому акаунті тільки для цієї дати народження.',
+        '\n'+access_text(store,cid),
         reply_markup={'inline_keyboard': rows})
 
 def show_position(api, cid, birth, number, store):
@@ -116,8 +146,7 @@ def show_offer(api,cid,birth,product,store,prices):
     try: amount = prices.amount(product)
     except PaymentError:
         api.say(cid,title+'\nДата народження: '+birth+'\n\n'
-            'Цей опис закритий. Якщо Ви отримали персональне запрошення від автора, відкрийте його '
-            'для активації доступу. Питання щодо доступу: '+SUPPORT+'.',reply_markup=back_menu(birth)); return
+            +access_text(store,cid),reply_markup=back_menu(birth)); return
     api.say(cid,title+'\nДата народження: '+birth+f'\nВартість: {amount} ⭐\n\n'
         'Доступ тільки для цієї дати у Вашому акаунті.\n\n'+TERMS,
         reply_markup={'inline_keyboard':[
@@ -134,8 +163,10 @@ def send_invoice(api,cid,birth,product,store,prices):
         'prices':[{'label':title,'amount':amount}],'start_parameter':'order_'+oid})
 
 def show_purchases(api,cid,store):
+    if store.had_membership(cid): show_access(api,cid,store)
     dates = store.dates(cid)
     if not dates:
+        if store.had_membership(cid): return
         api.say(cid,'У Вас ще немає збереженого доступу. Надішліть дату народження, щоб переглянути портрет.'); return
     # Separate messages keep all purchase history reachable without a button limit.
     for start in range(0,len(dates),40):
@@ -154,15 +185,16 @@ def handle_invitation(api, msg, cid, store, prices):
             api.say(cid,'Ця команда доступна лише власнику бота.'); return True
         try:
             if command == '/invite':
-                if len(args) != 3:
-                    api.say(cid,'Створення запрошення:\n/invite +380XXXXXXXXX ДД.ММ.РРРР\n\n'
-                        'Вкажіть номер, прив’язаний до Telegram отримувача, і дату, для якої відкриються всі позиції.'); return True
-                iid, token = store.create_invitation(cid,args[1],args[2])
+                if len(args) != 2:
+                    api.say(cid,'Створення запрошення:\n/invite +380XXXXXXXXX\n\n'
+                        'Вкажіть номер, прив’язаний до Telegram отримувача. Запрошення відкриває '
+                        'всі 33 позиції для необмеженої кількості дат на один календарний місяць від активації.'); return True
+                iid, token = store.create_invitation(cid,args[1])
                 username = api.call('getMe')['username']
-                api.say(cid,'Персональне запрошення для дати '+args[2]+'\n\n'
+                api.say(cid,'Персональне запрошення на місяць повного доступу\n\n'
                     f'https://t.me/{username}?start=gift_{token}\n\n'
                     'Активувати можна протягом 7 днів, тільки з підтвердженим номером отримувача. '
-                    'Після активації доступ зберігається без обмеження строку для цієї дати.\n'
+                    'Після активації відкриваються всі позиції для необмеженої кількості дат на один місяць.\n'
                     f'Відкликати запрошення або вже відкритий ним доступ:\n/revoke {iid}',
                     link_preview_options={'is_disabled':True})
             else:
@@ -175,13 +207,13 @@ def handle_invitation(api, msg, cid, store, prices):
     if command == '/start' and len(args) == 2 and args[1].startswith('gift_'):
         try:
             birth = store.begin_invitation(cid,args[1][5:])
-            if birth:
-                api.say(cid,'Ваш доступ уже збережено.',reply_markup={'remove_keyboard':True})
-                show_menu(api,cid,birth,store,prices)
+            if birth is not None:
+                show_access(api,cid,store)
             else:
                 api.say(cid,'Це персональне запрошення. Для перевірки натисніть «Поділитися своїм номером». '
                     'Бот звірить номер Вашого Telegram акаунту з номером у запрошенні. '
                     'У базі зберігається лише захищений відбиток номера. '
+                    'Після підтвердження почнеться місяць повного доступу для необмеженої кількості дат. '
                     'Перевірка діє 10 хвилин. /cancel скасовує перевірку.',
                     reply_markup={'keyboard':[[{'text':'Поділитися своїм номером','request_contact':True}]],
                                   'resize_keyboard':True,'one_time_keyboard':True})
@@ -195,10 +227,8 @@ def handle_invitation(api, msg, cid, store, prices):
         try:
             if msg.get('forward_origin') or msg.get('forward_from'):
                 raise PaymentError('Скористайтеся кнопкою «Поділитися своїм номером», без пересилання контакту.')
-            birth = store.redeem_invitation(cid,msg['contact'])
-            api.say(cid,'Усі 33 позиції для дати '+birth+' відкрито. Доступ збережено у Вашому акаунті.',
-                    reply_markup={'remove_keyboard':True})
-            show_menu(api,cid,birth,store,prices)
+            store.redeem_invitation(cid,msg['contact'])
+            show_access(api,cid,store)
         except PaymentError as e: api.say(cid,str(e))
         return True
     return False
@@ -243,6 +273,7 @@ def handle(api, update, store, prices):
         api.call('answerCallbackQuery',{'callback_query_id':cb['id']})
         args = cb.get('data','').split(':')
         action = args[0]
+        if action == 'access': show_access(api,cid,store); return
         if action == 'purchases': show_purchases(api,cid,store); return
         if len(args) < 2: return
         birth = args[1]
@@ -275,8 +306,9 @@ def handle(api, update, store, prices):
         api.say(cid,'Вітаю! Це портрет Надії Царенко.\n\nНадішліть дату народження: ДД.ММ.РРРР. '
             'Наприклад: 16.09.1998.\n\nВи отримаєте схему та меню 33 позицій. '
             '21 і 30 безкоштовні для всіх. Якщо Ви отримали персональне запрошення від автора, '
-            'відкрийте його, щоб активувати повний доступ для зазначеної дати.\n\n'
-            '/purchases · Мій доступ\n/myid · Мій Telegram ID\n/support · Допомога\n/privacy · Дані')
+            'відкрийте його, щоб активувати місяць повного доступу для необмеженої кількості дат.\n\n'
+            '/access · Мій доступ\n/myid · Мій Telegram ID\n/support · Допомога\n/privacy · Дані'
+            '\n\n'+access_text(store,cid))
         return
     if command == '/terms': api.say(cid,TERMS); return
     if command in ('/paysupport','/support'):
@@ -291,10 +323,11 @@ def handle(api, update, store, prices):
             'Дати, для яких Ви лише переглянули схему й не створювали рахунку, окремо не записуються. '
             'Повідомлення та результати залишаються в історії чату Telegram. '
             'Для персональних запрошень зберігаються захищений відбиток номера телефону, '
-            'дата народження, Telegram ID після активації та стан запрошення. '
+            'строк доступу, Telegram ID після активації та стан запрошення. '
             'Сам номер у базі бота не зберігається. Контакт залишається у Вашій історії чату Telegram. '
             'Дані банківської картки бот не отримує. Питання щодо даних: '+SUPPORT+'.'); return
     if command == '/purchases': show_purchases(api,cid,store); return
+    if command == '/access': show_access(api,cid,store); return
     try: calculated,_ = calculate(text)
     except ValueError as e: api.say(cid,str(e)); return
     api.call('sendPhoto',{'chat_id':cid,'caption':'Ваш портрет · '+text+'\nНадія Царенко',
@@ -331,7 +364,7 @@ def main():
     api.call('getMe')
     if api.call('getWebhookInfo').get('url'):
         raise SystemExit('У бота вже налаштований webhook. Вимкніть його перед запуском polling.')
-    commands = [('start','Новий розрахунок'),('purchases','Мій доступ'),('myid','Мій Telegram ID'),('terms','Умови покупки'),
+    commands = [('start','Новий розрахунок'),('access','Мій доступ'),('purchases','Попередні покупки'),('myid','Мій Telegram ID'),('terms','Умови покупки'),
                 ('paysupport','Допомога з оплатою'),('privacy','Обробка даних')]
     api.call('setMyCommands',{'commands':[{'command':c,'description':d} for c,d in commands]})
     offset = store.offset()

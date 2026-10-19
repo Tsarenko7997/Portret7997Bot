@@ -88,5 +88,42 @@ class KarmaFlowTests(unittest.TestCase):
             handle(self.api,callback('karma_png:16.09.1998'),self.store,self.prices)
         self.assertFalse(any(c[0]=='sendDocument' for c in self.api.calls))
         self.assertIn('100 грн',self.api.calls[-1][1]['text'])
+    def test_one_date_is_shared_between_portrait_and_karma(self):
+        self.activate()
+        handle(self.api,message('16.09.1998'),self.store,self.prices)
+        self.assertEqual(self.store.current_birth(7),'16.09.1998')
+        handle(self.api,callback('section:karma'),self.store,self.prices)
+        self.assertIn('Карма +/− · 16.09.1998',self.api.calls[-1][1]['caption'])
+        self.api.calls.clear()
+        handle(self.api,callback('section:portrait'),self.store,self.prices)
+        photo=next(c for c in self.api.calls if c[0]=='sendPhoto')
+        self.assertIn('Ваш портрет · 16.09.1998',photo[1]['caption'])
+        self.assertFalse(any('Завантажити PNG' in str(c[1]) for c in self.api.calls))
+    def test_new_date_updates_old_position_buttons(self):
+        self.activate()
+        handle(self.api,message('16.09.1998'),self.store,self.prices)
+        handle(self.api,message('01.01.2000'),self.store,self.prices)
+        handle(self.api,callback('position:16.09.1998:21'),self.store,self.prices)
+        self.assertIn('01.01.2000',self.api.calls[-1][1]['text'])
+        self.assertNotIn('16.09.1998',self.api.calls[-1][1]['text'])
+    def test_current_date_is_private_persistent_and_invalid_input_keeps_it(self):
+        self.store.set_current_birth(7,'16.09.1998')
+        self.assertIsNone(self.store.current_birth(8))
+        handle(self.api,message('31.02.2000'),self.store,self.prices)
+        self.assertEqual(self.store.current_birth(7),'16.09.1998')
+        path=self.store.path; self.store.close(); self.store=Store(path)
+        self.assertEqual(self.store.current_birth(7),'16.09.1998')
+        handle(self.api,message('/forgetdate'),self.store,self.prices)
+        self.assertIsNone(self.store.current_birth(7))
+    def test_cached_date_never_bypasses_karma_access_check(self):
+        self.store.set_current_birth(7,'16.09.1998')
+        handle(self.api,callback('section:karma'),self.store,self.prices)
+        self.assertFalse(any(c[0]=='sendPhoto' for c in self.api.calls))
+        self.assertIn('місячного доступу',self.api.calls[-1][1]['text'])
+    def test_karma_buttons_have_no_png_download(self):
+        self.activate(); self.store.set_current_birth(7,'16.09.1998')
+        handle(self.api,message('/karma'),self.store,self.prices)
+        data=self.api.calls[-1][1]
+        self.assertNotIn('Завантажити PNG',str(data))
 
 if __name__=='__main__': unittest.main()

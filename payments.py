@@ -274,6 +274,20 @@ class Store:
         with self.db:
             self.db.execute('INSERT OR REPLACE INTO state VALUES (?,?)',('section:'+str(user_id),section))
 
+    def current_birth(self,user_id):
+        row = self.db.execute('SELECT value FROM state WHERE key=?',('birth:'+str(user_id),)).fetchone()
+        return row[0] if row else None
+
+    def set_current_birth(self,user_id,birth):
+        from portrait import calculate
+        calculate(birth)
+        with self.db:
+            self.db.execute('INSERT OR REPLACE INTO state VALUES (?,?)',('birth:'+str(user_id),birth))
+
+    def forget_birth(self,user_id):
+        with self.db:
+            self.db.execute('DELETE FROM state WHERE key=?',('birth:'+str(user_id),))
+
     def extend_membership(self, owner_id, user_id, request_key, now=None):
         now = int(time.time()) if now is None else now
         if not isinstance(user_id,int) or user_id <= 0 or not request_key:

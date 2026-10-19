@@ -19,37 +19,34 @@ def draw_karma(result):
     out=BytesIO(); im.save(out,'PNG'); return out.getvalue()
 
 def draw_portrait(value,p):
-    im=Image.new('RGB',(1200,2000),'#f5f3fa'); d=ImageDraw.Draw(im)
+    im=Image.new('RGB',(2000,2000),'#fcfbf9'); d=ImageDraw.Draw(im)
     fontpath=str(ROOT/'assets'/'DejaVuSans.ttf')
-    font=lambda s: ImageFont.truetype(fontpath,s)
-    def text(x,y,t,size=26,fill='#48375f'):
+    font=lambda size: ImageFont.truetype(fontpath,size)
+    def text(x,y,t,size=28,fill='#202934'):
         d.text((x,y),t,font=font(size),fill=fill,anchor='mm')
-    text(600,52,'НАДІЯ ЦАРЕНКО',26)
-    text(600,105,'Портрет за датою народження',38)
-    text(600,155,value,30)
+    text(1000,47,'НАДІЯ ЦАРЕНКО',25)
+    text(1000,91,'Портрет 33 позиції',35)
+    text(1000,132,value,28)
     nodes={
-      'П11':(130,245),'П19':(640,245),'П20':(840,245),'П21':(1040,245),
-      'П9':(75,390),'П10':(245,390),'П15':(500,390),'П16':(670,390),'П17':(840,390),'П18':(1010,390),
-      'П13':(160,555),'П14':(870,555),
-      'П1':(320,710),'П2':(520,710),'П3':(720,710),
-      'П4':(420,865),'П5':(620,865),'П6':(520,1020),
-      'П12':(1020,865),'П7':(900,1020),'П30':(210,1020),'П8':(520,1175),
-      'A':(520,1375),'B':(420,1530),'C':(620,1530),
-      'D':(320,1685),'E':(520,1685),'F':(720,1685),
-      'G1':(920,1375),'G2':(1040,1530),'H':(520,1850),'Кп':(850,1850),'J':(1040,1850)}
-    line='#b1a7c6'
-    def connect(a,b): d.line([nodes[a],nodes[b]],fill=line,width=3)
-    for a,b in [('П9','П10'),('П9','П11'),('П10','П11'),('П1','П2'),('П2','П3'),('П1','П4'),('П2','П4'),('П2','П5'),('П3','П5'),('П4','П5'),('П4','П6'),('П5','П6'),('A','E'),('B','F'),('C','D')]: connect(a,b)
-    d.line([(160,610),(385,1100),(655,1100),(870,610)],fill=line,width=4)
-    d.line([(520,1175),(900,1175),(900,1020)],fill=line,width=3)
-    d.line([(180,1760),(405,1285),(635,1285),(860,1760)],fill=line,width=4)
+      'П11':(350,245),'П19':(1050,245),'П20':(1350,245),'П21':(1650,245),
+      'П9':(240,405),'П10':(460,405),'П15':(750,405),'П16':(1050,405),'П17':(1350,405),'П18':(1650,405),
+      'П13':(400,565),'П14':(1400,565),
+      'П1':(650,725),'П2':(900,725),'П3':(1150,725),
+      'П4':(775,885),'П5':(1025,885),'П6':(900,1045),
+      'П12':(350,885),'П7':(1400,885),'П30':(500,1085),'П8':(900,1205),
+      'A':(900,1365),'B':(775,1525),'C':(1025,1525),
+      'D':(650,1685),'E':(900,1685),'F':(1150,1685),
+      'G1':(1450,1455),'G2':(1660,1635),'H':(900,1845),'Кп':(1300,1845),'J':(1550,1845)}
+    line='#719bc1'
+    # Only the connections visible in the supplied reference are drawn.
+    d.line([nodes['П9'],nodes['П10']],fill=line,width=3)
+    d.line([(400,635),(790,1115),(1010,1115),(1400,635)],fill=line,width=3)
+    d.line([nodes['П8'],(1400,1205),nodes['П7']],fill=line,width=3)
+    d.line([(470,1755),(790,1285),(1010,1285),(1330,1755)],fill=line,width=3)
+    d.line([(1515,1630),(1605,1470)],fill=line,width=3)
     for key,(x,y) in nodes.items():
-        main=key in [f'П{i}' for i in range(1,7)]
-        shadow=key in ['A','B','C','D','E','F','G1','G2','H']
-        fill='#e7dcf7' if main else '#dcecf4' if shadow else '#ffffff'
-        d.rounded_rectangle((x-68,y-57,x+68,y+57),radius=16,fill=fill,outline='#afa2c4',width=2)
+        d.rectangle((x-70,y-70,x+70,y+70),fill='white',outline=line,width=3)
         result=f"{p['П15а']} / {p['П15б']}" if key=='П15' else str(p[key])
-        text(x,y-12,result,32 if key=='П15' else 43)
-        text(x,y+34,key,19)
-    text(600,1955,'Психологічний • Кармічний • Тіньовий портрет',23)
+        text(x,y-14,result,34 if key=='П15' else 48)
+        text(x,y+43,key,22)
     out=BytesIO(); im.save(out,'PNG'); return out.getvalue()

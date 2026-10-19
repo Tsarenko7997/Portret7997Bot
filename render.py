@@ -24,7 +24,7 @@ def draw_portrait(value,p):
     font=lambda size: ImageFont.truetype(fontpath,size)
     def text(x,y,t,size=28,fill='#202934'):
         d.text((x,y),t,font=font(size),fill=fill,anchor='mm')
-    text(1000,47,'НАДІЯ ЦАРЕНКО',25)
+    text(1000,47,'@lakshmi_775',25)
     text(1000,91,'Портрет 33 позиції',35)
     text(1000,132,value,28)
     nodes={

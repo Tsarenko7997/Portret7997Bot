@@ -76,13 +76,14 @@ def main_menu():
     return {'inline_keyboard':[
         [buttons[0]], buttons[1:3], buttons[3:5], buttons[5:7],
         [{'text':'Мій доступ','callback_data':'access'},
-         {'text':'Написати Надії','url':'https://t.me/Lakshmi_775'}]]}
+         {'text':'Написати в Telegram','url':'https://t.me/Lakshmi_775'}],
+        [{'text':'Instagram @lakshmi_775','url':'https://www.instagram.com/lakshmi_775/'}]]}
 
 def show_home(api,cid,store):
     store.set_section(cid,'portrait')
     birth = store.current_birth(cid)
     selected = ('Поточна дата: '+birth+'. Щоб змінити її, надішліть нову дату.\n\n') if birth else ''
-    api.say(cid,'Вітаю! Це бот Надії Царенко.\n\n'
+    api.say(cid,'Вітаю! Це бот @lakshmi_775.\n\n'
         'Оберіть розділ. «Портрет 33П» та «Карма +/−» уже доступні, інші розділи готуються.\n\n'
         +selected+access_text(store,cid),reply_markup=main_menu())
 
@@ -122,7 +123,7 @@ def show_karma(api,cid,birth,store):
                                                 [{'text':'Головне меню','callback_data':'home'}]]})
         return
     result = calculate_karma(birth)
-    api.call('sendPhoto',{'chat_id':cid,'caption':'Карма +/− · '+birth+'\nНадія Царенко\n\n'
+    api.call('sendPhoto',{'chat_id':cid,'caption':'Карма +/− · '+birth+'\nInstagram: @lakshmi_775\n\n'
         'Для нового розрахунку надішліть іншу дату.',
         'reply_markup':{'inline_keyboard':[[{'text':'Портрет 33П','callback_data':'section:portrait'}],
                                          [{'text':'Головне меню','callback_data':'home'}]]}},
@@ -130,7 +131,7 @@ def show_karma(api,cid,birth,store):
 
 def show_portrait(api,cid,birth,store,prices):
     calculated,_ = calculate(birth)
-    api.call('sendPhoto',{'chat_id':cid,'caption':'Ваш портрет · '+birth+'\nНадія Царенко',
+    api.call('sendPhoto',{'chat_id':cid,'caption':'Ваш портрет · '+birth+'\nInstagram: @lakshmi_775',
         'reply_markup':{'inline_keyboard':[
             [{'text':'Відкрити 33 позиції','callback_data':'menu:'+birth}],
             [{'text':'Карма +/−','callback_data':'section:karma'}],
@@ -181,7 +182,7 @@ def access_text(store,cid):
                 'Повний доступ до всіх позицій: 100 грн на місяць.\n'
                 'Після продовження Вам будуть доступні всі 33 позиції та необмежена кількість дат.\n\n'
                 'Щоб продовжити користування, напишіть '+SUPPORT+' у приватні повідомлення. '
-                'Надія продовжить Ваш доступ вручну.\n'
+                'Автор продовжить Ваш доступ вручну.\n'
                 f'Ваш Telegram ID: {cid}\n\n'
                 'Позиції 21 і 30 залишаються безкоштовними.')
     return ('Позиції 21 і 30 безкоштовні для всіх. Персональне запрошення автора відкриває '

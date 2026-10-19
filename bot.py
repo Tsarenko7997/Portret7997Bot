@@ -10,7 +10,7 @@ import urllib.error
 from pathlib import Path
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from portrait import calculate, calculate_karma, calculate_social
+from portrait import calculate, calculate_karma, calculate_social, calculate_money
 from render import draw_portrait, draw_karma
 from catalog import POSITIONS, FREE, description, chunks, TELEGRAM_HANDLE, TELEGRAM_URL, INSTAGRAM_URL, CONTACTS
 from karma_catalog import negative_description, positive_description
@@ -99,7 +99,7 @@ SECTIONS = {
 }
 
 def main_menu():
-    buttons = [{'text':label if key in ('portrait','karma','social') else label+' · Незабаром',
+    buttons = [{'text':label if key in ('portrait','karma','social','money') else label+' · Незабаром',
                 'callback_data':'section:'+key} for key,label in SECTIONS.items()]
     return {'inline_keyboard':[
         [buttons[0]], buttons[1:3], buttons[3:5], buttons[5:7],
@@ -112,7 +112,7 @@ def show_home(api,cid,store):
     birth = store.current_birth(cid)
     selected = ('Поточна дата: '+birth+'. Щоб змінити її, надішліть нову дату.\n\n') if birth else ''
     api.say(cid,'Вітаю! Це бот @lakshmi_775.\n\n'
-        'Оберіть розділ. Доступні «Портрет», «Карма +/−» та розрахунок соціального призначення. '
+        'Оберіть розділ. Доступні «Портрет», «Карма +/−», розрахунки грошового й соціального призначення. '
         'Інші розділи готуються.\n\n'
         +selected+access_text(store,cid),reply_markup=main_menu())
 
@@ -149,12 +149,47 @@ def show_section(api,cid,key,store,prices):
             store.set_section(cid,'portrait')
             text = ('Соціальне призначення доступне під час повного місячного доступу.\n\n'
                     +access_text(store,cid))
+    elif key == 'money':
+        if store.membership_until(cid) > int(time.time()):
+            store.set_section(cid,'money')
+            if birth:
+                show_money(api,cid,birth,store); return
+            text = ('Грошове призначення\n\nСпочатку надішліть дату народження у форматі ДД.ММ.РРРР. '
+                    'Після цього введіть своє ім’я українською, як у документах.')
+        else:
+            store.set_section(cid,'portrait')
+            text = ('Грошове призначення доступне під час повного місячного доступу.\n\n'
+                    +access_text(store,cid))
     else:
         text = SECTIONS[key]+'\n\nЦей розділ готується. Розрахунок ще недоступний. '
         text += 'Зараз Ви можете скористатися розділом «Портрет».'
         if birth: text += '\n\nПоточна дата: '+birth+'.'
     api.say(cid,text,reply_markup={'inline_keyboard':[
         [{'text':'Головне меню','callback_data':'home'}]]})
+
+def show_money(api,cid,birth,store):
+    if store.membership_until(cid) <= int(time.time()):
+        api.say(cid,'Грошове призначення доступне під час повного місячного доступу.\n\n'
+                +access_text(store,cid),reply_markup={'inline_keyboard':[
+                    [{'text':'Мій доступ','callback_data':'access'}],
+                    [{'text':'Головне меню','callback_data':'home'}]]})
+        return
+    name = store.money_name(cid)
+    if not name:
+        api.say(cid,'Грошове призначення · '+birth+'\n\n'
+                'Надішліть лише ім’я українською, як у документах, без прізвища та по батькові. '
+                'Наприклад: Надія. Використовується українська таблиця літер.',
+                reply_markup={'inline_keyboard':[[{'text':'Головне меню','callback_data':'home'}]]})
+        return
+    result = calculate_money(birth,name)
+    api.say(cid,'Грошове призначення · '+birth+'\nІм’я: '+result['name']+'\n\n'
+            +f"Аркан імені: {result['name_arcanum']}.\nВаш аркан грошового призначення: {result['arcanum']}.\n\n"
+            +'Детальний опис грошового призначення готується.\n\n'
+            +'Щоб змінити ім’я, надішліть його тут. Для іншої людини надішліть нову дату та ім’я.\n\n'
+            +CONTACTS,reply_markup={'inline_keyboard':[
+                [{'text':'Змінити ім’я','callback_data':'money_name'}],
+                [{'text':'Соціальне призначення','callback_data':'section:social'}],
+                [{'text':'Головне меню','callback_data':'home'}]]})
 
 def show_social(api,cid,birth,store):
     if store.membership_until(cid) <= int(time.time()):
@@ -480,6 +515,10 @@ def handle(api, update, store, prices):
             return
         if action == 'access': show_access(api,cid,store); return
         if action == 'purchases': show_purchases(api,cid,store); return
+        if action == 'money_name':
+            if store.membership_until(cid) > int(time.time()):
+                store.forget_money_name(cid)
+            show_section(api,cid,'money',store,prices); return
         if len(args) < 2: return
         birth = args[1]
         # Navigation and position buttons follow the latest date typed by this user.
@@ -528,9 +567,11 @@ def handle(api, update, store, prices):
     if command == '/portrait': show_section(api,cid,'portrait',store,prices); return
     if command == '/karma': show_section(api,cid,'karma',store,prices); return
     if command == '/social': show_section(api,cid,'social',store,prices); return
+    if command == '/money': show_section(api,cid,'money',store,prices); return
     if command == '/forgetdate':
         store.forget_birth(cid)
-        api.say(cid,'Поточну дату видалено. Надішліть нову дату народження у форматі ДД.ММ.РРРР.'); return
+        api.say(cid,'Поточну дату та ім’я для грошового призначення видалено. '
+                    'Надішліть нову дату народження у форматі ДД.ММ.РРРР.'); return
     if command == '/terms': api.say(cid,TERMS); return
     if command in ('/paysupport','/support'):
         api.say(cid,'Допомога з покупками та поверненнями: '+SUPPORT+'. '
@@ -542,6 +583,8 @@ def handle(api, update, store, prices):
             'повторно відкривати оплачені описи та обробляти повернення. '
             'Дати з рахунків зберігаються навіть до завершення оплати. '
             'Остання введена дата народження зберігається у Вашому акаунті для перемикання між розділами. '
+            'Для грошового призначення зберігається введене Вами ім’я для поточної дати. '
+            'Нова дата видаляє попереднє ім’я. Ім’я можна змінити в розділі грошового призначення. '
             'Нова дата замінює попередню поточну дату. Команда /forgetdate видаляє поточну дату, '
             'але не видаляє дати з історії покупок або повідомлень Telegram. '
             'Обраний розділ зберігається для Вашого акаунту. Повідомлення та результати залишаються в історії чату Telegram. '
@@ -553,12 +596,21 @@ def handle(api, update, store, prices):
     if command == '/purchases': show_purchases(api,cid,store); return
     if command == '/access': show_access(api,cid,store); return
     try: calculated,_ = calculate(text)
-    except ValueError as e: api.say(cid,str(e)); return
+    except ValueError as e:
+        if store.section(cid) == 'money' and store.current_birth(cid) and not any(c.isdigit() for c in text):
+            if store.membership_until(cid) <= int(time.time()):
+                show_money(api,cid,store.current_birth(cid),store); return
+            try: store.set_money_name(cid,text)
+            except ValueError as error: api.say(cid,str(error)); return
+            show_money(api,cid,store.current_birth(cid),store); return
+        api.say(cid,str(e)); return
     store.set_current_birth(cid,text)
     if store.section(cid) == 'karma':
         show_karma(api,cid,text,store); return
     if store.section(cid) == 'social':
         show_social(api,cid,text,store); return
+    if store.section(cid) == 'money':
+        show_money(api,cid,text,store); return
     show_portrait(api,cid,text,store,prices)
 
 def process_refunds(api,store):
@@ -588,7 +640,7 @@ def main():
     api.call('getMe')
     if api.call('getWebhookInfo').get('url'):
         raise SystemExit('У бота вже налаштований webhook. Вимкніть його перед запуском polling.')
-    commands = [('start','Головне меню'),('menu','Розділи бота'),('portrait','Портрет'),('karma','Карма +/−'),('social','Соціальне призначення'),('forgetdate','Видалити поточну дату'),('access','Мій доступ'),('purchases','Попередні покупки'),('myid','Мій Telegram ID'),('terms','Умови покупки'),
+    commands = [('start','Головне меню'),('menu','Розділи бота'),('portrait','Портрет'),('karma','Карма +/−'),('social','Соціальне призначення'),('money','Грошове призначення'),('forgetdate','Видалити поточну дату'),('access','Мій доступ'),('purchases','Попередні покупки'),('myid','Мій Telegram ID'),('terms','Умови покупки'),
                 ('paysupport','Допомога з оплатою'),('privacy','Обробка даних')]
     api.call('setMyCommands',{'commands':[{'command':c,'description':d} for c,d in commands]})
     offset = store.offset()

@@ -1,5 +1,6 @@
 """User-supplied portrait formulas. No date storage or interpretation."""
 import re
+import unicodedata
 from datetime import datetime, date
 
 def reduce22(n):
@@ -11,6 +12,27 @@ def calculate_social(value):
     """Sum every digit of the validated birth date, then reduce by 22."""
     calculate(value)
     return reduce22(sum(int(digit) for digit in value if digit.isdigit()))
+
+UKRAINIAN_ALPHABET = 'АБВГҐДЕЄЖЗИІЇЙКЛМНОПРСТУФХЦЧШЩЬЮЯ'
+NAME_VALUES = {letter:i%9+1 for i,letter in enumerate(UKRAINIAN_ALPHABET)}
+
+def normalize_money_name(value):
+    name = ' '.join(unicodedata.normalize('NFC',value).split())
+    letters = [c for c in name.upper() if c in NAME_VALUES]
+    if not 1 <= len(letters) <= 80 or len(name) > 100 or any(
+            c not in NAME_VALUES and c not in " -'’ʼ" for c in name.upper()):
+        raise ValueError('Введіть лише ім’я українською, як у документах, без прізвища та по батькові. '
+                         'Наприклад: Надія. Для подвійного імені дозволено дефіс або пробіл.')
+    return name
+
+def calculate_money(value,name):
+    """User formula: R(9*П2 + П3 + R(sum of Ukrainian name letters)))."""
+    portrait,_ = calculate(value)
+    name = normalize_money_name(name)
+    total = sum(NAME_VALUES.get(c,0) for c in name.upper())
+    name_arcanum = reduce22(total)
+    result = reduce22(9*portrait['П2']+portrait['П3']+name_arcanum)
+    return {'name':name,'name_sum':total,'name_arcanum':name_arcanum,'arcanum':result}
 
 def calculate_karma(value):
     """User's karma worksheet: ПП1 corrected to П4; zero differences become 22."""

@@ -267,10 +267,10 @@ class Store:
 
     def section(self,user_id):
         row = self.db.execute('SELECT value FROM state WHERE key=?',('section:'+str(user_id),)).fetchone()
-        return row[0] if row and row[0] in ('portrait','karma','social') else 'portrait'
+        return row[0] if row and row[0] in ('portrait','karma','social','money') else 'portrait'
 
     def set_section(self,user_id,section):
-        if section not in ('portrait','karma','social'): raise ValueError('Unknown section')
+        if section not in ('portrait','karma','social','money'): raise ValueError('Unknown section')
         with self.db:
             self.db.execute('INSERT OR REPLACE INTO state VALUES (?,?)',('section:'+str(user_id),section))
 
@@ -282,11 +282,29 @@ class Store:
         from portrait import calculate
         calculate(birth)
         with self.db:
+            if self.current_birth(user_id) != birth:
+                self.db.execute('DELETE FROM state WHERE key=?',('money_name:'+str(user_id),))
             self.db.execute('INSERT OR REPLACE INTO state VALUES (?,?)',('birth:'+str(user_id),birth))
 
     def forget_birth(self,user_id):
         with self.db:
             self.db.execute('DELETE FROM state WHERE key=?',('birth:'+str(user_id),))
+            self.db.execute('DELETE FROM state WHERE key=?',('money_name:'+str(user_id),))
+
+    def money_name(self,user_id):
+        row = self.db.execute('SELECT value FROM state WHERE key=?',('money_name:'+str(user_id),)).fetchone()
+        return row[0] if row else None
+
+    def set_money_name(self,user_id,name):
+        from portrait import normalize_money_name
+        if not self.current_birth(user_id): raise ValueError('Спочатку введіть дату народження.')
+        name = normalize_money_name(name)
+        with self.db:
+            self.db.execute('INSERT OR REPLACE INTO state VALUES (?,?)',('money_name:'+str(user_id),name))
+
+    def forget_money_name(self,user_id):
+        with self.db:
+            self.db.execute('DELETE FROM state WHERE key=?',('money_name:'+str(user_id),))
 
     def extend_membership(self, owner_id, user_id, request_key, now=None):
         now = int(time.time()) if now is None else now

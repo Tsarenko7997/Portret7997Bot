@@ -4,6 +4,20 @@ from PIL import Image, ImageDraw, ImageFont
 
 ROOT=Path(__file__).parent
 
+def draw_karma(result):
+    """Two aligned rows of exact calculation values, following the supplied example."""
+    im=Image.new('RGB',(1200,650),'white')
+    d=ImageDraw.Draw(im)
+    fontpath=str(ROOT/'assets'/'DejaVuSans.ttf')
+    heading=ImageFont.truetype(fontpath,128)
+    numbers=ImageFont.truetype(fontpath,94)
+    d.text((62,38),'Карма',font=heading,fill='#111111',anchor='lt')
+    for sign,key,y in [('+','positive',335),('−','negative',555)]:
+        d.text((78,y),sign,font=numbers,fill='#111111',anchor='mm')
+        for x,value in zip([280,480,680,880,1080],result[key]):
+            d.text((x,y),str(value),font=numbers,fill='#111111',anchor='mm')
+    out=BytesIO(); im.save(out,'PNG'); return out.getvalue()
+
 def draw_portrait(value,p):
     im=Image.new('RGB',(1200,2000),'#f5f3fa'); d=ImageDraw.Draw(im)
     fontpath=str(ROOT/'assets'/'DejaVuSans.ttf')

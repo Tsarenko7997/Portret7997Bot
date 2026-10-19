@@ -10,7 +10,7 @@ from pathlib import Path
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from portrait import calculate, calculate_karma
-from render import draw_portrait
+from render import draw_portrait, draw_karma
 from catalog import POSITIONS, FREE, description, chunks
 from payments import Store, Prices, PaymentError
 
@@ -40,8 +40,9 @@ class Telegram:
             for k,v in data.items():
                 val=json.dumps(v,ensure_ascii=False) if isinstance(v,(dict,list)) else str(v)
                 parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{val}\r\n'.encode())
-            name,blob=file
-            parts.extend([f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"; filename="portrait.png"\r\nContent-Type: image/png\r\n\r\n'.encode(),blob,f'\r\n--{boundary}--\r\n'.encode()])
+            name,blob=file[:2]
+            filename=file[2] if len(file)==3 else 'portrait.png'
+            parts.extend([f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"; filename="{filename}"\r\nContent-Type: image/png\r\n\r\n'.encode(),blob,f'\r\n--{boundary}--\r\n'.encode()])
             body=b''.join(parts); headers['Content-Type']='multipart/form-data; boundary='+boundary
         else:
             body=json.dumps(data).encode(); headers['Content-Type']='application/json'
@@ -113,14 +114,12 @@ def show_karma(api,cid,birth,store):
                                                 [{'text':'Головне меню','callback_data':'home'}]]})
         return
     result = calculate_karma(birth)
-    positive = '\n'.join(f'ПП{i}: {n}' for i,n in enumerate(result['positive'],1))
-    negative = '\n'.join(f'ПМ{i}: {n}' for i,n in enumerate(result['negative'],1))
-    api.say(cid,'Карма +/− · '+birth+'\n\nПЛЮСОВА КАРМА\n'+positive+
-        '\n\nМІНУСОВА КАРМА\n'+negative+'\n\n'
-        'Це числові результати. Тексти трактувань для цього розділу готуються.\n'
+    api.call('sendPhoto',{'chat_id':cid,'caption':'Карма +/− · '+birth+'\nНадія Царенко\n\n'
         'Для нового розрахунку надішліть іншу дату.',
-        reply_markup={'inline_keyboard':[[{'text':'Портрет 33П для цієї дати','callback_data':'menu:'+birth}],
-                                        [{'text':'Головне меню','callback_data':'home'}]]})
+        'reply_markup':{'inline_keyboard':[[{'text':'Завантажити PNG','callback_data':'karma_png:'+birth}],
+                                         [{'text':'Портрет 33П для цієї дати','callback_data':'menu:'+birth}],
+                                         [{'text':'Головне меню','callback_data':'home'}]]}},
+        ('photo',draw_karma(result),'karma.png'))
 
 TERMS = (
     'Умови доступу\n\n'
@@ -380,6 +379,12 @@ def handle(api, update, store, prices):
                 if action == 'invoice': send_invoice(api,cid,birth,product,store,prices)
                 else: show_offer(api,cid,birth,product,store,prices)
             except PaymentError as e: api.say(cid,str(e),reply_markup=back_menu(birth))
+            return
+        if action == 'karma_png':
+            if store.membership_until(cid) <= int(time.time()):
+                show_karma(api,cid,birth,store); return
+            api.call('sendDocument',{'chat_id':cid,'caption':'Карма без стиснення · '+birth},
+                     ('document',draw_karma(calculate_karma(birth)),'karma.png'))
             return
         if action != 'png': return
         calculated,_=calculate(birth)

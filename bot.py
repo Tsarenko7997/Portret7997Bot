@@ -185,12 +185,7 @@ def show_matrix(api,cid,birth,store):
                     [{'text':'Головне меню','callback_data':'home'}]]})
         return
     result = calculate_matrix(birth)
-    first,second,constant,fourth,fifth = result['numbers']
     caption = ('Матриця · '+birth+'\n\n'
-               +f'Сума цифр дати: {first}.\nСума цифр числа {first}: {second}.\n'
-               +f'Константа: {constant}.\n{first} {result["operation"]} {constant} = {fourth}.\n'
-               +f'Сума цифр числа {fourth}: {fifth}.\n\n'
-               +'У таблиці враховано цифри дати та всіх п’яти чисел розрахунку. Нулі пропущено.\n'
                +'Детальні описи матриці готуються. Для нового розрахунку надішліть іншу дату.\n\n'
                +CONTACTS)
     api.call('sendPhoto',{'chat_id':cid,'caption':caption,'reply_markup':{'inline_keyboard':[

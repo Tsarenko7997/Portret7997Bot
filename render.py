@@ -23,7 +23,6 @@ def draw_matrix(value,result):
             while d.textbbox((0,0),cell,font=font(size))[2] > 300:
                 size-=2
             text(x+170,y+135,cell,size)
-    text(600,1110,'Числа розрахунку: '+' · '.join(map(str,result['numbers'])),29)
     out=BytesIO(); im.save(out,'PNG'); return out.getvalue()
 
 def draw_karma(result):

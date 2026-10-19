@@ -86,12 +86,12 @@ def show_menu(api, cid, birth, store, prices):
     if len(owned) < 33:
         price = f' · {prices.bundle} ⭐' if prices.bundle else ''
         rows.append([{'text': 'Відкрити всі 33 позиції'+price, 'callback_data': 'offer:'+birth+':all'}])
-    rows.append([{'text': 'Мої покупки', 'callback_data': 'purchases'}])
+    rows.append([{'text': 'Мій доступ', 'callback_data': 'purchases'}])
     price = f'Одна платна позиція: {prices.single} ⭐.\n' if prices.single else ''
     api.say(cid, 'Ваші позиції · '+birth+'\n\n'
         '21 і 30 відкриваються безкоштовно. Натисніть номер, щоб переглянути опис.\n'
-        '🔒 Позиція ще не придбана для цієї дати.\n'+price+
-        '\nКуплений доступ зберігається у Вашому акаунті тільки для цієї дати народження.',
+        '🔒 Доступ до позиції для цієї дати закритий.\n'+price+
+        '\nВідкритий доступ зберігається у Вашому акаунті тільки для цієї дати народження.',
         reply_markup={'inline_keyboard': rows})
 
 def show_position(api, cid, birth, number, store):
@@ -114,8 +114,10 @@ def show_offer(api,cid,birth,product,store,prices):
         p = POSITIONS[int(product)]
         title = f"Позиція {product} ({p['key']}) · {p['title']}"
     try: amount = prices.amount(product)
-    except PaymentError as e:
-        api.say(cid,title+'\nДата народження: '+birth+'\n\n'+str(e),reply_markup=back_menu(birth)); return
+    except PaymentError:
+        api.say(cid,title+'\nДата народження: '+birth+'\n\n'
+            'Цей опис закритий. Якщо Ви отримали персональне запрошення від автора, відкрийте його '
+            'для активації доступу. Питання щодо доступу: '+SUPPORT+'.',reply_markup=back_menu(birth)); return
     api.say(cid,title+'\nДата народження: '+birth+f'\nВартість: {amount} ⭐\n\n'
         'Доступ тільки для цієї дати у Вашому акаунті.\n\n'+TERMS,
         reply_markup={'inline_keyboard':[
@@ -134,11 +136,72 @@ def send_invoice(api,cid,birth,product,store,prices):
 def show_purchases(api,cid,store):
     dates = store.dates(cid)
     if not dates:
-        api.say(cid,'У Вас ще немає оплачених позицій. Надішліть дату народження, щоб переглянути портрет.'); return
+        api.say(cid,'У Вас ще немає збереженого доступу. Надішліть дату народження, щоб переглянути портрет.'); return
     # Separate messages keep all purchase history reachable without a button limit.
     for start in range(0,len(dates),40):
         rows = [[{'text':d, 'callback_data':'menu:'+d}] for d in dates[start:start+40]]
-        api.say(cid,'Ваші покупки. Оберіть дату народження:',reply_markup={'inline_keyboard':rows})
+        api.say(cid,'Ваш доступ. Оберіть дату народження:',reply_markup={'inline_keyboard':rows})
+
+def handle_invitation(api, msg, cid, store, prices):
+    text = msg.get('text','').strip()
+    args = text.split()
+    command = args[0].split('@')[0] if args else ''
+    if command == '/myid':
+        api.say(cid,f'Ваш Telegram ID: {cid}'); return True
+    if command in ('/invite','/revoke'):
+        owner = os.getenv('BOT_OWNER_ID','')
+        if not owner.isdigit() or int(owner) != cid:
+            api.say(cid,'Ця команда доступна лише власнику бота.'); return True
+        try:
+            if command == '/invite':
+                if len(args) != 3:
+                    api.say(cid,'Створення запрошення:\n/invite +380XXXXXXXXX ДД.ММ.РРРР\n\n'
+                        'Вкажіть номер, прив’язаний до Telegram отримувача, і дату, для якої відкриються всі позиції.'); return True
+                iid, token = store.create_invitation(cid,args[1],args[2])
+                username = api.call('getMe')['username']
+                api.say(cid,'Персональне запрошення для дати '+args[2]+'\n\n'
+                    f'https://t.me/{username}?start=gift_{token}\n\n'
+                    'Активувати можна протягом 7 днів, тільки з підтвердженим номером отримувача. '
+                    'Після активації доступ зберігається без обмеження строку для цієї дати.\n'
+                    f'Відкликати запрошення або вже відкритий ним доступ:\n/revoke {iid}',
+                    link_preview_options={'is_disabled':True})
+            else:
+                if len(args) != 2:
+                    api.say(cid,'Відкликати запрошення та його доступ: /revoke ID'); return True
+                revoked = store.revoke_invitation(cid,args[1])
+                api.say(cid,'Запрошення та наданий ним доступ відкликано.' if revoked else 'Активного запрошення з таким ID не знайдено.')
+        except (PaymentError,ValueError) as e: api.say(cid,str(e))
+        return True
+    if command == '/start' and len(args) == 2 and args[1].startswith('gift_'):
+        try:
+            birth = store.begin_invitation(cid,args[1][5:])
+            if birth:
+                api.say(cid,'Ваш доступ уже збережено.',reply_markup={'remove_keyboard':True})
+                show_menu(api,cid,birth,store,prices)
+            else:
+                api.say(cid,'Це персональне запрошення. Для перевірки натисніть «Поділитися своїм номером». '
+                    'Бот звірить номер Вашого Telegram акаунту з номером у запрошенні. '
+                    'У базі зберігається лише захищений відбиток номера. '
+                    'Перевірка діє 10 хвилин. /cancel скасовує перевірку.',
+                    reply_markup={'keyboard':[[{'text':'Поділитися своїм номером','request_contact':True}]],
+                                  'resize_keyboard':True,'one_time_keyboard':True})
+        except PaymentError as e: api.say(cid,str(e),reply_markup={'remove_keyboard':True})
+        return True
+    if command == '/cancel':
+        with store.db: store.db.execute('DELETE FROM invitation_pending WHERE user_id=?',(cid,))
+        api.say(cid,'Перевірку скасовано. Надішліть дату народження для розрахунку.',reply_markup={'remove_keyboard':True})
+        return True
+    if 'contact' in msg:
+        try:
+            if msg.get('forward_origin') or msg.get('forward_from'):
+                raise PaymentError('Скористайтеся кнопкою «Поділитися своїм номером», без пересилання контакту.')
+            birth = store.redeem_invitation(cid,msg['contact'])
+            api.say(cid,'Усі 33 позиції для дати '+birth+' відкрито. Доступ збережено у Вашому акаунті.',
+                    reply_markup={'remove_keyboard':True})
+            show_menu(api,cid,birth,store,prices)
+        except PaymentError as e: api.say(cid,str(e))
+        return True
+    return False
 
 def handle(api, update, store, prices):
     checkout = update.get('pre_checkout_query')
@@ -206,12 +269,14 @@ def handle(api, update, store, prices):
                  ('document',draw_portrait(birth,calculated)))
         return
     text = msg.get('text','').strip()
+    if handle_invitation(api,msg,cid,store,prices): return
     command = text.split(' ',1)[0].split('@')[0]
     if command in ('/start','/help'):
         api.say(cid,'Вітаю! Це портрет Надії Царенко.\n\nНадішліть дату народження: ДД.ММ.РРРР. '
             'Наприклад: 16.09.1998.\n\nВи отримаєте схему та меню 33 позицій. '
-            '21 і 30 безкоштовні. Інші описи можна придбати окремо або пакетом для однієї дати.\n\n'
-            '/purchases · Ваші покупки\n/terms · Умови покупки\n/paysupport · Допомога з оплатою\n/privacy · Дані')
+            '21 і 30 безкоштовні для всіх. Якщо Ви отримали персональне запрошення від автора, '
+            'відкрийте його, щоб активувати повний доступ для зазначеної дати.\n\n'
+            '/purchases · Мій доступ\n/myid · Мій Telegram ID\n/support · Допомога\n/privacy · Дані')
         return
     if command == '/terms': api.say(cid,TERMS); return
     if command in ('/paysupport','/support'):
@@ -225,6 +290,9 @@ def handle(api, update, store, prices):
             'Дати з рахунків зберігаються навіть до завершення оплати. '
             'Дати, для яких Ви лише переглянули схему й не створювали рахунку, окремо не записуються. '
             'Повідомлення та результати залишаються в історії чату Telegram. '
+            'Для персональних запрошень зберігаються захищений відбиток номера телефону, '
+            'дата народження, Telegram ID після активації та стан запрошення. '
+            'Сам номер у базі бота не зберігається. Контакт залишається у Вашій історії чату Telegram. '
             'Дані банківської картки бот не отримує. Питання щодо даних: '+SUPPORT+'.'); return
     if command == '/purchases': show_purchases(api,cid,store); return
     try: calculated,_ = calculate(text)
@@ -248,7 +316,7 @@ def process_refunds(api,store):
 def storage_path(prices):
     volume = os.getenv('RAILWAY_VOLUME_MOUNT_PATH')
     directory = Path(os.getenv('DATA_DIR') or volume or ROOT/'data').resolve()
-    if os.getenv('RAILWAY_ENVIRONMENT_ID') and (prices.single or prices.bundle):
+    if os.getenv('RAILWAY_ENVIRONMENT_ID') and (prices.single or prices.bundle or os.getenv('BOT_OWNER_ID')):
         if not volume or not directory.is_relative_to(Path(volume).resolve()):
             raise SystemExit('Перед увімкненням оплати підключіть Railway Volume і розмістіть DATA_DIR на ньому.')
     return directory/'purchases.sqlite3'
@@ -263,7 +331,7 @@ def main():
     api.call('getMe')
     if api.call('getWebhookInfo').get('url'):
         raise SystemExit('У бота вже налаштований webhook. Вимкніть його перед запуском polling.')
-    commands = [('start','Новий розрахунок'),('purchases','Мої покупки'),('terms','Умови покупки'),
+    commands = [('start','Новий розрахунок'),('purchases','Мій доступ'),('myid','Мій Telegram ID'),('terms','Умови покупки'),
                 ('paysupport','Допомога з оплатою'),('privacy','Обробка даних')]
     api.call('setMyCommands',{'commands':[{'command':c,'description':d} for c,d in commands]})
     offset = store.offset()

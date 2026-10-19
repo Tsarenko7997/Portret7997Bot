@@ -3,11 +3,22 @@ import os
 import secrets
 import sqlite3
 import time
+import hashlib
+import hmac
+import re
 from pathlib import Path
 from catalog import FREE
 
 class PaymentError(ValueError):
     pass
+
+def normalize_phone(value):
+    value = re.sub(r'[\s()\-]', '', str(value))
+    if value.startswith('00'): value = '+' + value[2:]
+    if not value.startswith('+'): value = '+' + value
+    if not re.fullmatch(r'\+[1-9][0-9]{7,14}', value):
+        raise PaymentError('Вкажіть номер з кодом країни, наприклад +380XXXXXXXXX.')
+    return value
 
 class Prices:
     def __init__(self, single=None, bundle=None):
@@ -47,13 +58,25 @@ class Store:
             CREATE INDEX IF NOT EXISTS orders_owner ON orders(user_id, birth_date);
             CREATE INDEX IF NOT EXISTS charges_order ON charges(order_id, state);
             CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS invitations (
+                id TEXT PRIMARY KEY, token_hash TEXT UNIQUE NOT NULL, phone_hash TEXT NOT NULL,
+                birth_date TEXT NOT NULL, created_by INTEGER NOT NULL, expires INTEGER NOT NULL,
+                user_id INTEGER, redeemed INTEGER, revoked INTEGER);
+            CREATE INDEX IF NOT EXISTS invitations_owner ON invitations(user_id, birth_date);
+            CREATE TABLE IF NOT EXISTS invitation_pending (
+                user_id INTEGER PRIMARY KEY, token_hash TEXT NOT NULL, expires INTEGER NOT NULL);
         ''')
+        with self.db:
+            self.db.execute("INSERT OR IGNORE INTO state VALUES ('invite_hash_key',?)", (secrets.token_hex(32),))
         try: os.chmod(self.path, 0o600)
         except OSError: pass
 
     def close(self): self.db.close()
 
     def _owned(self, user_id, birth_date):
+        if self.db.execute('''SELECT 1 FROM invitations WHERE user_id=? AND birth_date=?
+            AND redeemed IS NOT NULL AND revoked IS NULL''', (user_id,birth_date)).fetchone():
+            return set(range(1,34))
         rows = self.db.execute('''SELECT o.product FROM orders o JOIN charges c ON c.order_id=o.id
             WHERE o.user_id=? AND o.birth_date=? AND c.state='paid' ''', (user_id, birth_date))
         products = {r['product'] for r in rows}
@@ -142,7 +165,71 @@ class Store:
     def dates(self, user_id):
         return [r[0] for r in self.db.execute('''SELECT DISTINCT o.birth_date FROM orders o
             JOIN charges c ON c.order_id=o.id WHERE o.user_id=? AND c.state='paid'
-            ORDER BY o.birth_date''',(user_id,))]
+            UNION SELECT birth_date FROM invitations WHERE user_id=? AND redeemed IS NOT NULL
+            AND revoked IS NULL ORDER BY birth_date''',(user_id,user_id))]
+
+    def _phone_hash(self, phone):
+        key = self.db.execute("SELECT value FROM state WHERE key='invite_hash_key'").fetchone()[0]
+        return hmac.new(bytes.fromhex(key), normalize_phone(phone).encode(), hashlib.sha256).hexdigest()
+
+    @staticmethod
+    def _token_hash(token):
+        return hashlib.sha256(token.encode()).hexdigest()
+
+    def create_invitation(self, owner_id, phone, birth_date, now=None):
+        from portrait import calculate
+        calculate(birth_date)
+        now = int(time.time()) if now is None else now
+        phone_hash = self._phone_hash(phone)
+        token, iid = secrets.token_urlsafe(24), secrets.token_hex(6)
+        with self.db:
+            self.db.execute('INSERT INTO invitations VALUES (?,?,?,?,?,?,NULL,NULL,NULL)',
+                (iid,self._token_hash(token),phone_hash,birth_date,owner_id,now+7*86400))
+        return iid, token
+
+    def begin_invitation(self, user_id, token, now=None):
+        now = int(time.time()) if now is None else now
+        token_hash = self._token_hash(token)
+        row = self.db.execute('SELECT * FROM invitations WHERE token_hash=?', (token_hash,)).fetchone()
+        if not row or row['revoked'] is not None:
+            raise PaymentError('Це запрошення недоступне. Зверніться до @Lakshmi_775.')
+        if row['user_id'] is not None:
+            if row['user_id'] != user_id:
+                raise PaymentError('Це запрошення недоступне для Вашого акаунту.')
+            return row['birth_date']
+        if row['expires'] <= now: raise PaymentError('Термін запрошення минув. Попросіть нове посилання.')
+        with self.db:
+            self.db.execute('INSERT OR REPLACE INTO invitation_pending VALUES (?,?,?)',
+                            (user_id,token_hash,now+600))
+        return None
+
+    def redeem_invitation(self, user_id, contact, now=None):
+        now = int(time.time()) if now is None else now
+        if contact.get('user_id') != user_id:
+            raise PaymentError('Натисніть кнопку «Поділитися своїм номером». Чужий контакт не підходить.')
+        phone_hash = self._phone_hash(contact.get('phone_number',''))
+        self.db.execute('BEGIN IMMEDIATE')
+        try:
+            row = self.db.execute('''SELECT i.*, p.expires AS pending_expires FROM invitations i
+                JOIN invitation_pending p ON p.token_hash=i.token_hash WHERE p.user_id=?''', (user_id,)).fetchone()
+            if not row or row['pending_expires'] <= now:
+                raise PaymentError('Спочатку відкрийте своє персональне посилання ще раз.')
+            if row['revoked'] is not None or (row['user_id'] is None and row['expires'] <= now):
+                raise PaymentError('Запрошення більше не діє. Зверніться до @Lakshmi_775.')
+            if row['user_id'] not in (None,user_id) or not hmac.compare_digest(row['phone_hash'],phone_hash):
+                raise PaymentError('Це запрошення недоступне для Вашого номера або акаунту.')
+            self.db.execute('UPDATE invitations SET user_id=?, redeemed=COALESCE(redeemed,?) WHERE id=?',
+                            (user_id,now,row['id']))
+            self.db.execute('DELETE FROM invitation_pending WHERE user_id=?', (user_id,))
+            self.db.commit()
+            return row['birth_date']
+        except Exception:
+            self.db.rollback(); raise
+
+    def revoke_invitation(self, owner_id, iid):
+        with self.db:
+            return self.db.execute('UPDATE invitations SET revoked=? WHERE id=? AND created_by=? AND revoked IS NULL',
+                                   (int(time.time()),iid,owner_id)).rowcount == 1
 
     def offset(self):
         row = self.db.execute("SELECT value FROM state WHERE key='offset'").fetchone()

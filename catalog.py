@@ -7,7 +7,12 @@ import lzma
 from pathlib import Path
 
 FREE = frozenset((21, 30))
-CTA = 'Для повного розбору з детальним описом Ваших сильних сторін, можливих блоків і шляхів їх опрацювання пишіть @Lakshmi_775.'
+TELEGRAM_HANDLE = '@lakshmi_775'
+TELEGRAM_URL = 'https://t.me/lakshmi_775'
+INSTAGRAM_URL = 'https://www.instagram.com/lakshmi_775?srtk=dDZ4ajlpODhvc2sw&utm_source=qr'
+CONTACTS = 'Telegram: ' + TELEGRAM_HANDLE + '\nInstagram: ' + INSTAGRAM_URL
+CTA = ('Для повного розбору з детальним описом Ваших сильних сторін, можливих блоків '
+       'і шляхів їх опрацювання пишіть '+TELEGRAM_HANDLE+'.\n\n'+CONTACTS)
 def read_catalog():
     """Load private deployment configuration, or a private file. Never fetch public content."""
     count = int(os.getenv('CATALOG_XZ_PARTS','0'))

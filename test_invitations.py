@@ -138,7 +138,7 @@ class InvitationTests(unittest.TestCase):
             text=self.api.calls[-1][1]['text']
             self.assertIn('100 грн',text)
             self.assertIn('місяць повного доступу завершився',text)
-            self.assertIn('@Lakshmi_775',text)
+            self.assertIn('@lakshmi_775',text)
             self.assertIn('Ваш Telegram ID: 7',text)
     def test_reentry_shows_expired_prompt(self):
         iid,token=self.invite(); self.redeem(token)

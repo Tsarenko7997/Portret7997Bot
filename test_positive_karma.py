@@ -33,7 +33,7 @@ class PositiveCatalogTests(unittest.TestCase):
             for n in range(1,23):
                 text=positive_description(1,n,'16.09.1998')
                 self.assertIn(f'Аркан {n} · Плюсова тема {n}',text)
-                self.assertIn('@Lakshmi_775',text)
+                self.assertIn('@lakshmi_775',text)
                 self.assertNotIn('\u2014',text)
                 self.assertTrue(all(len(c.encode('utf-16-le'))//2<=3900 for c in chunks(text)))
 

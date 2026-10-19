@@ -12,7 +12,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from portrait import calculate, calculate_karma
 from render import draw_portrait, draw_karma
-from catalog import POSITIONS, FREE, description, chunks
+from catalog import POSITIONS, FREE, description, chunks, TELEGRAM_HANDLE, TELEGRAM_URL, INSTAGRAM_URL, CONTACTS
 from karma_catalog import negative_description, positive_description
 from payments import Store, Prices, PaymentError
 
@@ -61,7 +61,7 @@ class Telegram:
         return payload['result']
     def say(self, chat, text, **extra): return self.call('sendMessage',{'chat_id':chat,'text':text,**extra})
 
-SUPPORT = '@Lakshmi_775'
+SUPPORT = TELEGRAM_HANDLE
 SECTIONS = {
     'portrait':'Портрет',
     'karma':'Карма +/−',
@@ -78,8 +78,8 @@ def main_menu():
     return {'inline_keyboard':[
         [buttons[0]], buttons[1:3], buttons[3:5], buttons[5:7],
         [{'text':'Мій доступ','callback_data':'access'},
-         {'text':'Написати в Telegram','url':'https://t.me/Lakshmi_775'}],
-        [{'text':'Instagram @lakshmi_775','url':'https://www.instagram.com/lakshmi_775/'}]]}
+         {'text':'Написати в Telegram','url':TELEGRAM_URL}],
+        [{'text':'Instagram @lakshmi_775','url':INSTAGRAM_URL}]]}
 
 def show_home(api,cid,store):
     store.set_section(cid,'portrait')
@@ -131,7 +131,7 @@ def show_karma(api,cid,birth,store):
     positive_buttons = [{'text':f'Плюс {i} · {value}',
                          'callback_data':f'karma_plus:{birth}:{i}'}
                         for i,value in enumerate(result['positive'],1)]
-    api.call('sendPhoto',{'chat_id':cid,'caption':'Карма +/− · '+birth+'\nInstagram: @lakshmi_775\n\n'
+    api.call('sendPhoto',{'chat_id':cid,'caption':'Карма +/− · '+birth+'\n'+CONTACTS+'\n\n'+
         'Натисніть позицію плюсової або мінусової карми нижче, щоб прочитати її опис.\n\n'
         'Для нового розрахунку надішліть іншу дату.',
         'reply_markup':{'inline_keyboard':[positive_buttons[:3],positive_buttons[3:],
@@ -171,7 +171,7 @@ def show_karma_interpretation(api,cid,birth,position,store,positive=False):
 
 def show_portrait(api,cid,birth,store,prices):
     calculated,_ = calculate(birth)
-    api.call('sendPhoto',{'chat_id':cid,'caption':'Ваш портрет · '+birth+'\nInstagram: @lakshmi_775'},
+    api.call('sendPhoto',{'chat_id':cid,'caption':'Ваш портрет · '+birth+'\n'+CONTACTS},
         ('photo',draw_portrait(birth,calculated)))
     show_menu(api,cid,birth,store,prices)
 
@@ -182,7 +182,7 @@ TERMS = (
     'Точний строк відображається в /access за київським часом. Повторне відкриття посилання '
     'не починає новий місяць. Посилання можна активувати протягом 7 днів. '
     'Автор може відкликати доступ. Після завершення строку позиції 21 і 30 залишаються відкритими. '
-    'Продовження повного доступу: 100 грн на місяць. Для продовження напишіть @Lakshmi_775 '
+    'Продовження повного доступу: 100 грн на місяць. Для продовження напишіть @lakshmi_775 '
     'та вкажіть свій Telegram ID із /myid. Автор продовжує доступ вручну після перевірки звернення. '
     'Бот не приймає платежів за продовження, не перевіряє банківські перекази та не списує коштів.\n\n'
     'Умови попередніх окремих покупок, якщо вони були:\n'

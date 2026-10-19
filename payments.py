@@ -265,6 +265,15 @@ class Store:
         return bool(self.db.execute('SELECT 1 FROM invitations WHERE user_id=? AND redeemed IS NOT NULL',
                                    (user_id,)).fetchone())
 
+    def section(self,user_id):
+        row = self.db.execute('SELECT value FROM state WHERE key=?',('section:'+str(user_id),)).fetchone()
+        return row[0] if row and row[0] in ('portrait','karma') else 'portrait'
+
+    def set_section(self,user_id,section):
+        if section not in ('portrait','karma'): raise ValueError('Unknown section')
+        with self.db:
+            self.db.execute('INSERT OR REPLACE INTO state VALUES (?,?)',('section:'+str(user_id),section))
+
     def extend_membership(self, owner_id, user_id, request_key, now=None):
         now = int(time.time()) if now is None else now
         if not isinstance(user_id,int) or user_id <= 0 or not request_key:

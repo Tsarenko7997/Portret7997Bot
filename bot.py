@@ -9,7 +9,7 @@ import urllib.error
 from pathlib import Path
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from portrait import calculate
+from portrait import calculate, calculate_karma
 from render import draw_portrait
 from catalog import POSITIONS, FREE, description, chunks
 from payments import Store, Prices, PaymentError
@@ -70,7 +70,7 @@ SECTIONS = {
 }
 
 def main_menu():
-    buttons = [{'text':label if key == 'portrait' else label+' · Незабаром',
+    buttons = [{'text':label if key in ('portrait','karma') else label+' · Незабаром',
                 'callback_data':'section:'+key} for key,label in SECTIONS.items()]
     return {'inline_keyboard':[
         [buttons[0]], buttons[1:3], buttons[3:5], buttons[5:7],
@@ -78,21 +78,49 @@ def main_menu():
          {'text':'Написати Надії','url':'https://t.me/Lakshmi_775'}]]}
 
 def show_home(api,cid,store):
+    store.set_section(cid,'portrait')
     api.say(cid,'Вітаю! Це бот Надії Царенко.\n\n'
-        'Оберіть розділ. «Портрет 33П» уже доступний, інші розділи готуються.\n\n'
+        'Оберіть розділ. «Портрет 33П» та «Карма +/−» уже доступні, інші розділи готуються.\n\n'
         +access_text(store,cid),reply_markup=main_menu())
 
-def show_section(api,cid,key):
+def show_section(api,cid,key,store):
     if key not in SECTIONS: return
     if key == 'portrait':
+        store.set_section(cid,'portrait')
         text = ('Портрет 33П\n\nНадішліть дату народження у форматі ДД.ММ.РРРР. '
                 'Наприклад: 16.09.1998.\nВи отримаєте схему та описи позицій. '
                 '21 і 30 відкриті для всіх; усі 33 доступні під час повного доступу.')
+    elif key == 'karma':
+        if store.membership_until(cid) > int(time.time()):
+            store.set_section(cid,'karma')
+            text = ('Карма +/−\n\nНадішліть дату народження у форматі ДД.ММ.РРРР. '
+                    'Ви отримаєте п’ять позицій плюсової та п’ять позицій мінусової карми. '
+                    'Зараз доступний числовий розрахунок. Трактування готуються.')
+        else:
+            store.set_section(cid,'portrait')
+            text = ('Карма +/−\n\nРозрахунок карми доступний під час повного місячного доступу.\n\n'
+                    +access_text(store,cid)+'\n\nЗвернутися до автора: '+SUPPORT+'.')
     else:
         text = SECTIONS[key]+'\n\nЦей розділ готується. Розрахунок ще недоступний. '
         text += 'Зараз Ви можете скористатися розділом «Портрет 33П».'
     api.say(cid,text,reply_markup={'inline_keyboard':[
         [{'text':'Головне меню','callback_data':'home'}]]})
+
+def show_karma(api,cid,birth,store):
+    if store.membership_until(cid) <= int(time.time()):
+        api.say(cid,'Карма +/− доступна під час повного місячного доступу.\n\n'+access_text(store,cid),
+                reply_markup={'inline_keyboard':[[{'text':'Мій доступ','callback_data':'access'}],
+                                                [{'text':'Головне меню','callback_data':'home'}]]})
+        return
+    result = calculate_karma(birth)
+    positive = '\n'.join(f'ПП{i}: {n}' for i,n in enumerate(result['positive'],1))
+    negative = '\n'.join(f'ПМ{i}: {n}' for i,n in enumerate(result['negative'],1))
+    api.say(cid,'Карма +/− · '+birth+'\n\nПЛЮСОВА КАРМА\n'+positive+
+        '\n\nМІНУСОВА КАРМА\n'+negative+'\n\n'
+        'Це числові результати. Тексти трактувань для цього розділу готуються.\n'
+        'Для нового розрахунку надішліть іншу дату.',
+        reply_markup={'inline_keyboard':[[{'text':'Портрет 33П для цієї дати','callback_data':'menu:'+birth}],
+                                        [{'text':'Головне меню','callback_data':'home'}]]})
 
 TERMS = (
     'Умови доступу\n\n'
@@ -329,7 +357,7 @@ def handle(api, update, store, prices):
         action = args[0]
         if action == 'home': show_home(api,cid,store); return
         if action == 'section':
-            if len(args) == 2: show_section(api,cid,args[1])
+            if len(args) == 2: show_section(api,cid,args[1],store)
             return
         if action == 'access': show_access(api,cid,store); return
         if action == 'purchases': show_purchases(api,cid,store); return
@@ -339,6 +367,7 @@ def handle(api, update, store, prices):
         except ValueError:
             api.say(cid,'Надішліть дату народження у форматі ДД.ММ.РРРР.'); return
         if action in ('menu','positions','calc'):
+            store.set_section(cid,'portrait')
             show_menu(api,cid,birth,store,prices); return
         if action in ('position','offer','invoice'):
             if len(args) != 3: return
@@ -362,7 +391,8 @@ def handle(api, update, store, prices):
     command = text.split(' ',1)[0].split('@')[0]
     if command in ('/start','/help','/menu'):
         show_home(api,cid,store); return
-    if command == '/portrait': show_section(api,cid,'portrait'); return
+    if command == '/portrait': show_section(api,cid,'portrait',store); return
+    if command == '/karma': show_section(api,cid,'karma',store); return
     if command == '/terms': api.say(cid,TERMS); return
     if command in ('/paysupport','/support'):
         api.say(cid,'Допомога з покупками та поверненнями: '+SUPPORT+'. '
@@ -374,7 +404,7 @@ def handle(api, update, store, prices):
             'повторно відкривати оплачені описи та обробляти повернення. '
             'Дати з рахунків зберігаються навіть до завершення оплати. '
             'Дати, для яких Ви лише переглянули схему й не створювали рахунку, окремо не записуються. '
-            'Повідомлення та результати залишаються в історії чату Telegram. '
+            'Обраний розділ зберігається для Вашого акаунту. Повідомлення та результати залишаються в історії чату Telegram. '
             'Для персональних запрошень зберігаються захищений відбиток номера телефону, '
             'строк доступу, Telegram ID після активації та стан запрошення. '
             'Сам номер у базі бота не зберігається. Контакт залишається у Вашій історії чату Telegram. '
@@ -384,6 +414,8 @@ def handle(api, update, store, prices):
     if command == '/access': show_access(api,cid,store); return
     try: calculated,_ = calculate(text)
     except ValueError as e: api.say(cid,str(e)); return
+    if store.section(cid) == 'karma':
+        show_karma(api,cid,text,store); return
     api.call('sendPhoto',{'chat_id':cid,'caption':'Ваш портрет · '+text+'\nНадія Царенко',
         'reply_markup':{'inline_keyboard':[
             [{'text':'Відкрити 33 позиції','callback_data':'menu:'+text}],
@@ -419,7 +451,7 @@ def main():
     api.call('getMe')
     if api.call('getWebhookInfo').get('url'):
         raise SystemExit('У бота вже налаштований webhook. Вимкніть його перед запуском polling.')
-    commands = [('start','Головне меню'),('menu','Розділи бота'),('portrait','Портрет 33П'),('access','Мій доступ'),('purchases','Попередні покупки'),('myid','Мій Telegram ID'),('terms','Умови покупки'),
+    commands = [('start','Головне меню'),('menu','Розділи бота'),('portrait','Портрет 33П'),('karma','Карма +/−'),('access','Мій доступ'),('purchases','Попередні покупки'),('myid','Мій Telegram ID'),('terms','Умови покупки'),
                 ('paysupport','Допомога з оплатою'),('privacy','Обробка даних')]
     api.call('setMyCommands',{'commands':[{'command':c,'description':d} for c,d in commands]})
     offset = store.offset()

@@ -59,6 +59,41 @@ class Telegram:
     def say(self, chat, text, **extra): return self.call('sendMessage',{'chat_id':chat,'text':text,**extra})
 
 SUPPORT = '@Lakshmi_775'
+SECTIONS = {
+    'portrait':'Портрет 33П',
+    'karma':'Карма +/−',
+    'matrix':'Матриця',
+    'money':'Грошове призначення',
+    'social':'Соціальне призначення',
+    'year':'Прогноз на роки',
+    'month':'Прогноз на місяці',
+}
+
+def main_menu():
+    buttons = [{'text':label if key == 'portrait' else label+' · Незабаром',
+                'callback_data':'section:'+key} for key,label in SECTIONS.items()]
+    return {'inline_keyboard':[
+        [buttons[0]], buttons[1:3], buttons[3:5], buttons[5:7],
+        [{'text':'Мій доступ','callback_data':'access'},
+         {'text':'Написати Надії','url':'https://t.me/Lakshmi_775'}]]}
+
+def show_home(api,cid,store):
+    api.say(cid,'Вітаю! Це бот Надії Царенко.\n\n'
+        'Оберіть розділ. «Портрет 33П» уже доступний, інші розділи готуються.\n\n'
+        +access_text(store,cid),reply_markup=main_menu())
+
+def show_section(api,cid,key):
+    if key not in SECTIONS: return
+    if key == 'portrait':
+        text = ('Портрет 33П\n\nНадішліть дату народження у форматі ДД.ММ.РРРР. '
+                'Наприклад: 16.09.1998.\nВи отримаєте схему та описи позицій. '
+                '21 і 30 відкриті для всіх; усі 33 доступні під час повного доступу.')
+    else:
+        text = SECTIONS[key]+'\n\nЦей розділ готується. Розрахунок ще недоступний. '
+        text += 'Зараз Ви можете скористатися розділом «Портрет 33П».'
+    api.say(cid,text,reply_markup={'inline_keyboard':[
+        [{'text':'Головне меню','callback_data':'home'}]]})
+
 TERMS = (
     'Умови доступу\n\n'
     'Персональне запрошення відкриває всі 33 позиції для необмеженої кількості дат народження '
@@ -87,7 +122,8 @@ TERMS = (
 )
 
 def back_menu(birth):
-    return {'inline_keyboard': [[{'text': 'Усі 33 позиції', 'callback_data': 'menu:'+birth}]]}
+    return {'inline_keyboard': [[{'text': 'Усі 33 позиції', 'callback_data': 'menu:'+birth}],
+                               [{'text':'Головне меню','callback_data':'home'}]]}
 
 def access_text(store,cid):
     until = store.membership_until(cid)
@@ -120,6 +156,7 @@ def show_menu(api, cid, birth, store, prices):
         price = f' · {prices.bundle} ⭐' if prices.bundle else ''
         rows.append([{'text': 'Відкрити всі 33 позиції'+price, 'callback_data': 'offer:'+birth+':all'}])
     rows.append([{'text': 'Мій доступ', 'callback_data': 'access'}])
+    rows.append([{'text':'Головне меню','callback_data':'home'}])
     price = f'Одна платна позиція: {prices.single} ⭐.\n' if prices.single else ''
     api.say(cid, 'Ваші позиції · '+birth+'\n\n'
         '21 і 30 відкриваються безкоштовно. Натисніть номер, щоб переглянути опис.\n'
@@ -290,6 +327,10 @@ def handle(api, update, store, prices):
         api.call('answerCallbackQuery',{'callback_query_id':cb['id']})
         args = cb.get('data','').split(':')
         action = args[0]
+        if action == 'home': show_home(api,cid,store); return
+        if action == 'section':
+            if len(args) == 2: show_section(api,cid,args[1])
+            return
         if action == 'access': show_access(api,cid,store); return
         if action == 'purchases': show_purchases(api,cid,store); return
         if len(args) < 2: return
@@ -319,14 +360,9 @@ def handle(api, update, store, prices):
     text = msg.get('text','').strip()
     if handle_invitation(api,msg,cid,store,prices): return
     command = text.split(' ',1)[0].split('@')[0]
-    if command in ('/start','/help'):
-        api.say(cid,'Вітаю! Це портрет Надії Царенко.\n\nНадішліть дату народження: ДД.ММ.РРРР. '
-            'Наприклад: 16.09.1998.\n\nВи отримаєте схему та меню 33 позицій. '
-            '21 і 30 безкоштовні для всіх. Якщо Ви отримали персональне запрошення від автора, '
-            'відкрийте його, щоб активувати місяць повного доступу для необмеженої кількості дат.\n\n'
-            '/access · Мій доступ\n/myid · Мій Telegram ID\n/support · Допомога\n/privacy · Дані'
-            '\n\n'+access_text(store,cid))
-        return
+    if command in ('/start','/help','/menu'):
+        show_home(api,cid,store); return
+    if command == '/portrait': show_section(api,cid,'portrait'); return
     if command == '/terms': api.say(cid,TERMS); return
     if command in ('/paysupport','/support'):
         api.say(cid,'Допомога з покупками та поверненнями: '+SUPPORT+'. '
@@ -351,7 +387,8 @@ def handle(api, update, store, prices):
     api.call('sendPhoto',{'chat_id':cid,'caption':'Ваш портрет · '+text+'\nНадія Царенко',
         'reply_markup':{'inline_keyboard':[
             [{'text':'Відкрити 33 позиції','callback_data':'menu:'+text}],
-            [{'text':'Завантажити PNG','callback_data':'png:'+text}]]}},
+            [{'text':'Завантажити PNG','callback_data':'png:'+text}],
+            [{'text':'Головне меню','callback_data':'home'}]]}},
         ('photo',draw_portrait(text,calculated)))
     show_menu(api,cid,text,store,prices)
 
@@ -382,7 +419,7 @@ def main():
     api.call('getMe')
     if api.call('getWebhookInfo').get('url'):
         raise SystemExit('У бота вже налаштований webhook. Вимкніть його перед запуском polling.')
-    commands = [('start','Новий розрахунок'),('access','Мій доступ'),('purchases','Попередні покупки'),('myid','Мій Telegram ID'),('terms','Умови покупки'),
+    commands = [('start','Головне меню'),('menu','Розділи бота'),('portrait','Портрет 33П'),('access','Мій доступ'),('purchases','Попередні покупки'),('myid','Мій Telegram ID'),('terms','Умови покупки'),
                 ('paysupport','Допомога з оплатою'),('privacy','Обробка даних')]
     api.call('setMyCommands',{'commands':[{'command':c,'description':d} for c,d in commands]})
     offset = store.offset()

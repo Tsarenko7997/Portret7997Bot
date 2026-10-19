@@ -138,7 +138,8 @@ class InvitationTests(unittest.TestCase):
             text=self.api.calls[-1][1]['text']
             self.assertIn('100 грн',text)
             self.assertIn('місяць повного доступу завершився',text)
-            self.assertIn('поки не підключено',text)
+            self.assertIn('@Lakshmi_775',text)
+            self.assertIn('Ваш Telegram ID: 7',text)
     def test_reentry_shows_expired_prompt(self):
         iid,token=self.invite(); self.redeem(token)
         with patch('payments.time.time',return_value=self.store.membership_until(7)):
@@ -168,5 +169,64 @@ class InvitationTests(unittest.TestCase):
         self.store.db.execute('UPDATE invitations SET access_until=NULL,birth_date=? WHERE id=?',(DATE,iid))
         self.store.db.commit(); self.store.close(); self.store=Store(self.path)
         self.assertEqual(self.store.membership_until(7),next_month(redeemed))
+
+    def test_manual_extension_starts_now_if_expired(self):
+        iid,token=self.invite(); self.redeem(token)
+        old=self.store.membership_until(7); now=old+3*86400
+        until=self.store.extend_membership(99,7,'renew:99:10',now=now)
+        self.assertEqual(until,next_month(now))
+        self.assertEqual(self.store.membership_until(7),until)
+        with patch('payments.time.time',return_value=now):
+            self.assertEqual(len(self.store.owned(7,DATE)),33)
+            self.assertEqual(len(self.store.owned(7,'01.01.2000')),33)
+    def test_early_extension_preserves_remaining_days_and_survives_restart(self):
+        iid,token=self.invite(); self.redeem(token)
+        old=self.store.membership_until(7)
+        until=self.store.extend_membership(99,7,'renew:99:11',now=old-100)
+        self.assertEqual(until,next_month(old))
+        self.store.close(); self.store=Store(self.path)
+        self.assertEqual(self.store.membership_until(7),until)
+    def test_repeated_update_extends_only_once(self):
+        iid,token=self.invite(); self.redeem(token)
+        until=self.store.extend_membership(99,7,'renew:99:12')
+        self.assertEqual(self.store.extend_membership(99,7,'renew:99:12'),until)
+        self.assertEqual(self.store.membership_until(7),until)
+        self.assertEqual(self.store.db.execute('SELECT COUNT(*) FROM access_extensions').fetchone()[0],1)
+    def test_extension_rejects_unknown_user_revoked_and_wrong_owner(self):
+        iid,token=self.invite(); self.redeem(token)
+        for owner,user in [(99,8),(98,7)]:
+            with self.assertRaises(PaymentError): self.store.extend_membership(owner,user,'bad')
+        self.store.revoke_invitation(99,iid)
+        with self.assertRaises(PaymentError): self.store.extend_membership(99,7,'revoked')
+        self.assertEqual(self.store.owned(7,DATE),{21,30})
+    def test_extension_audit_and_revocation(self):
+        iid,token=self.invite(); self.redeem(token)
+        before=self.store.membership_until(7)
+        until=self.store.extend_membership(99,7,'renew:99:15')
+        row=self.store.db.execute('SELECT * FROM access_extensions').fetchone()
+        self.assertEqual((row['owner_id'],row['user_id'],row['previous_until'],row['access_until']),(99,7,before,until))
+        self.store.revoke_invitation(99,iid)
+        self.assertEqual(self.store.owned(7,DATE),{21,30})
+    def test_only_owner_can_use_renew_command(self):
+        iid,token=self.invite(); self.redeem(token)
+        before=self.store.membership_until(7)
+        with patch.dict('os.environ',{'BOT_OWNER_ID':'99'}):
+            handle(self.api,message('/renew 7',message_id=20),self.store,self.prices)
+            self.assertEqual(self.store.membership_until(7),before)
+            handle(self.api,message('/renew 7',user=99,message_id=21),self.store,self.prices)
+            self.assertEqual(self.store.membership_until(7),next_month(before))
+            self.assertEqual(self.api.calls[-1][1]['chat_id'],99)
+            self.assertIn('акаунту 7',self.api.calls[-1][1]['text'])
+            handle(self.api,message('/renew 7',user=99,message_id=21),self.store,self.prices)
+            self.assertEqual(self.store.membership_until(7),next_month(before))
+    def test_disabled_owner_and_bad_renew_input_do_not_change_access(self):
+        iid,token=self.invite(); self.redeem(token)
+        before=self.store.membership_until(7)
+        with patch.dict('os.environ',{'BOT_OWNER_ID':''}):
+            handle(self.api,message('/renew 7',user=99,message_id=22),self.store,self.prices)
+        with patch.dict('os.environ',{'BOT_OWNER_ID':'99'}):
+            for text in ['/renew','/renew @person','/renew -7','/renew 0','/renew 7 2']:
+                handle(self.api,message(text,user=99,message_id=23),self.store,self.prices)
+        self.assertEqual(self.store.membership_until(7),before)
 
 if __name__=='__main__': unittest.main()

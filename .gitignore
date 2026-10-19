@@ -1,0 +1,10 @@
+.env
+.venv/
+__pycache__/
+offset.json
+offset.tmp
+data/
+*.sqlite3*
+backups/
+# Paid interpretation texts must remain private.
+content/positions.json

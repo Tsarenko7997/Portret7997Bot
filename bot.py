@@ -1,13 +1,16 @@
-"""Telegram long polling. Only token in .env or environment; no date database."""
+"""Telegram portrait bot with date-scoped paid interpretations."""
 import json
 import os
 import secrets
 import time
+import sqlite3
 import urllib.request
 import urllib.error
 from pathlib import Path
 from portrait import calculate
 from render import draw_portrait
+from catalog import POSITIONS, FREE, description, chunks
+from payments import Store, Prices, PaymentError
 
 ROOT=Path(__file__).parent
 
@@ -24,7 +27,9 @@ class APIError(Exception):
         super().__init__(f'Telegram API: {code}')
 
 class Telegram:
-    def __init__(self, token): self.base='https://api.telegram.org/bot'+token+'/'
+    def __init__(self, token):
+        self.base='https://api.telegram.org/bot'+token+'/'
+        if os.getenv('TELEGRAM_TEST_ENV')=='1':self.base+='test/'
     def call(self, method, data=None, file=None):
         data=data or {}
         headers={}
@@ -39,7 +44,7 @@ class Telegram:
         else:
             body=json.dumps(data).encode(); headers['Content-Type']='application/json'
         try:
-            with urllib.request.urlopen(urllib.request.Request(self.base+method,data=body,headers=headers),timeout=45) as response:
+            with urllib.request.urlopen(urllib.request.Request(self.base+method,data=body,headers=headers),timeout=8 if method == 'answerPreCheckoutQuery' else 45) as response:
                 payload=json.load(response)
         except urllib.error.HTTPError as e:
             try: payload=json.loads(e.read())
@@ -51,124 +56,245 @@ class Telegram:
         return payload['result']
     def say(self, chat, text, **extra): return self.call('sendMessage',{'chat_id':chat,'text':text,**extra})
 
-POSITION_DESCRIPTIONS = (
-    ('ПСИХОЛОГІЧНИЙ ПОРТРЕТ', (
-        ('П1', 'Ваш характер, природні риси, реакції, сильні та слабкі сторони.'),
-        ('П2', 'Глибинні прагнення Вашої душі.'),
-        ('П3', 'Енергія реалізації в матеріальному світі.'),
-        ('П4', 'Надумані перешкоди.'),
-        ('П5', 'Мініціль. Де Ви проявляєтесь найкраще.'),
-        ('П6', 'Основа Вашої особистості. Хобі.'),
-        ('П7', 'Покликання, справжнє призначення, місія.'),
-        ('П8', 'За рахунок чого Ви досягаєте цілей і реалізуєте своє призначення. Ваші дари.'),
-    )),
-    ('ПСИХОЛОГІЧНА ГАРМОНІЯ', (
-        ('П12', 'Зона комфорту, місце наповнення, внутрішній спокій і стабільність.'),
-        ('П13', 'Як Ви сприймаєте себе. Самооцінка, внутрішній образ «Я».'),
-        ('П14', 'Як Вас сприймають інші. Яке враження Ви справляєте на людей.'),
-    )),
-    ('КАРМІЧНИЙ ПОРТРЕТ', (
-        ('П9', 'Ким Ви були у минулому житті.'),
-        ('П10', 'Чим Ви займалися у минулому житті, яку діяльність, досвід і навички Ваша душа проходила раніше.'),
-        ('П11', 'Головний урок, який Вам важливо усвідомити та відпрацювати у цьому житті.'),
-        ('П15', 'Через що саме відбувається відпрацювання карми.'),
-        ('П16', 'Кармічна проблема. Точка повтору.'),
-        ('П17', 'Ваш кармічний комфорт. Стан, у якому Вам легко, безпечно та стабільно жити і розвиватися.'),
-        ('П18', 'Як саме Вам варто реалізовувати свою місію в цьому втіленні.'),
-        ('П19', 'Ваші слабкі місця, спокуси та ризики, де є ймовірність піти в мінус або втратити баланс.'),
-        ('П20', 'Ваша підтримка Вищих сил. Совість, внутрішній компас, духовна опора, яка допомагає Вам у складні моменти та рятує ситуацію.'),
-        ('П21', "Що дає задоволення і де одночасно великі обов’язки."),
-        ('П30', 'Дискомфорт.'),
-    )),
-    ('ТІНЬОВИЙ ПОРТРЕТ', (
-        ('A', 'Що найбільш сильно впливає на Вас із підсвідомості.'),
-        ('B', 'Те, на що Ви можете впливати та не здатні змінити.'),
-        ('C', 'Найголовніше у Вашому житті.'),
-        ('D', 'Що найбільше впливає на Вашу свідомість.'),
-        ('E', 'Що Ви робите добре, але навіть не усвідомлюєте цього.'),
-        ('F', 'Що Ви не хочете приймати, що Вас відштовхує або викликає внутрішній опір.'),
-        ('G1', 'Перший можливий шлях Вашої реалізації через свій потенціал.'),
-        ('G2', 'Другий можливий шлях реалізації, альтернативний сценарій розвитку.'),
-        ('H', 'Сфера руйнівних, деструктивних схильностей.'),
-        ('Кп', 'Ваш психологічний комфорт. Де Вам спокійно, безпечно і стабільно.'),
-        ('J', 'Хто або що стимулює Вас на вчинки, подвиги, звершення та самореалізацію.'),
-    )),
+SUPPORT = '@Lakshmi_775'
+TERMS = (
+    'Умови покупки\n\n'
+    'Ви купуєте текст опису позиції для зазначеної дати народження у своєму Telegram акаунті. '
+    'Одна позиція відкриває лише її опис і Ваш аркан. П15 включає обидва результати. '
+    'Пакет відкриває всі 33 позиції тільки для однієї зазначеної дати. '
+    'Позиції 21 і 30 безкоштовні. Покупки для інших дат або акаунтів не переносяться.\n\n'
+    'Це одноразова покупка, без автоматичних списань. Повторний перегляд оплаченої позиції '
+    'для цієї самої дати не потребує оплати. Пакет має окрему ціну; попередні покупки '
+    'окремих позицій автоматично не віднімаються від неї.\n\n'
+    'Оплата проходить у Telegram Stars. Суму Stars видно перед підтвердженням. '
+    'Їхня вартість у гривнях залежить від способу придбання. '
+    'Тексти є символічними трактуваннями для самопізнання.\n\n'
+    'Якщо оплату списано, але опис не відкривається, або потрібне повернення, '
+    'напишіть ' + SUPPORT + ' і додайте квитанцію Telegram. Не надсилайте токени або дані картки. '
+    'Питання покупки вирішує автор бота, а не підтримка Telegram. '
+    'Кнопка «Погоджуюсь та купую» підтверджує згоду з цими умовами.'
 )
 
-def describe_positions(value, positions):
-    sections = ['Значення позицій · ' + value]
-    for title, entries in POSITION_DESCRIPTIONS:
-        lines = [title]
-        for key, description in entries:
-            number = (str(positions['П15а']) + ' / ' + str(positions['П15б'])
-                      if key == 'П15' else str(positions[key]))
-            label = key if key.startswith('П') else 'П ' + key
-            lines.append(f'{label} — {number}: {description}')
-        sections.append('\n'.join(lines))
-    return '\n\n'.join(sections)
+def back_menu(birth):
+    return {'inline_keyboard': [[{'text': 'Усі 33 позиції', 'callback_data': 'menu:'+birth}]]}
 
-def handle(api, update):
-    cb=update.get('callback_query')
-    msg=cb.get('message',{}) if cb else update.get('message',{})
-    chat=msg.get('chat',{})
-    if chat.get('type')!='private': return
-    cid=chat['id']
+def show_menu(api, cid, birth, store, prices):
+    owned = store.owned(cid,birth)
+    buttons = [{'text': ('' if n in owned else '🔒 ') + str(n),
+                'callback_data': f'position:{birth}:{n}'} for n in range(1,34)]
+    rows = [buttons[i:i+6] for i in range(0,33,6)]
+    if len(owned) < 33:
+        price = f' · {prices.bundle} ⭐' if prices.bundle else ''
+        rows.append([{'text': 'Відкрити всі 33 позиції'+price, 'callback_data': 'offer:'+birth+':all'}])
+    rows.append([{'text': 'Мої покупки', 'callback_data': 'purchases'}])
+    price = f'Одна платна позиція: {prices.single} ⭐.\n' if prices.single else ''
+    api.say(cid, 'Ваші позиції · '+birth+'\n\n'
+        '21 і 30 відкриваються безкоштовно. Натисніть номер, щоб переглянути опис.\n'
+        '🔒 Позиція ще не придбана для цієї дати.\n'+price+
+        '\nКуплений доступ зберігається у Вашому акаунті тільки для цієї дати народження.',
+        reply_markup={'inline_keyboard': rows})
+
+def show_position(api, cid, birth, number, store):
+    if not store.has(cid,birth,number): return False
+    calculated,_ = calculate(birth)
+    messages = list(chunks(description(number,birth,calculated)))
+    for i,text in enumerate(messages):
+        extra = {'reply_markup':back_menu(birth)} if i == len(messages)-1 else {}
+        api.say(cid,text,**extra)
+    return True
+
+def show_offer(api,cid,birth,product,store,prices):
+    owned = store.owned(cid,birth)
+    if (product == 'all' and len(owned) == 33) or (product != 'all' and int(product) in owned):
+        api.say(cid,'Цей доступ уже відкрито. Повторна оплата не потрібна.',reply_markup=back_menu(birth))
+        return
+    if product == 'all':
+        title = 'Усі 33 позиції'
+    else:
+        p = POSITIONS[int(product)]
+        title = f"Позиція {product} ({p['key']}) · {p['title']}"
+    try: amount = prices.amount(product)
+    except PaymentError as e:
+        api.say(cid,title+'\nДата народження: '+birth+'\n\n'+str(e),reply_markup=back_menu(birth)); return
+    api.say(cid,title+'\nДата народження: '+birth+f'\nВартість: {amount} ⭐\n\n'
+        'Доступ тільки для цієї дати у Вашому акаунті.\n\n'+TERMS,
+        reply_markup={'inline_keyboard':[
+            [{'text': f'Погоджуюсь та купую · {amount} ⭐', 'callback_data': f'invoice:{birth}:{product}'}],
+            [{'text': 'Повернутися до позицій','callback_data':'menu:'+birth}]]})
+
+def send_invoice(api,cid,birth,product,store,prices):
+    amount = prices.amount(product)
+    oid = store.create_order(cid,birth,product,amount)
+    title = 'Усі 33 позиції' if product == 'all' else 'Позиція '+product
+    api.call('sendInvoice',{'chat_id':cid,'title':title+' · '+birth,
+        'description':title+' для дати '+birth+'. Одноразова оплата. Доступ лише у Вашому акаунті для цієї дати.',
+        'payload':oid,'provider_token':'','currency':'XTR',
+        'prices':[{'label':title,'amount':amount}],'start_parameter':'order_'+oid})
+
+def show_purchases(api,cid,store):
+    dates = store.dates(cid)
+    if not dates:
+        api.say(cid,'У Вас ще немає оплачених позицій. Надішліть дату народження, щоб переглянути портрет.'); return
+    # Separate messages keep all purchase history reachable without a button limit.
+    for start in range(0,len(dates),40):
+        rows = [[{'text':d, 'callback_data':'menu:'+d}] for d in dates[start:start+40]]
+        api.say(cid,'Ваші покупки. Оберіть дату народження:',reply_markup={'inline_keyboard':rows})
+
+def handle(api, update, store, prices):
+    checkout = update.get('pre_checkout_query')
+    if checkout:
+        answer = {'pre_checkout_query_id':checkout['id'],'ok':False}
+        try:
+            store.approve(checkout.get('invoice_payload',''),checkout['from']['id'],
+                          checkout.get('currency'),checkout.get('total_amount'))
+            answer['ok'] = True
+        except PaymentError as e: answer['error_message'] = str(e)
+        api.call('answerPreCheckoutQuery',answer)
+        return
+    cb = update.get('callback_query')
+    msg = cb.get('message',{}) if cb else update.get('message',{})
+    chat = msg.get('chat',{})
+    if chat.get('type') != 'private': return
+    cid = chat['id']
+    # Telegram may send the refund service message without a human sender.
+    refund = msg.get('refunded_payment')
+    if refund:
+        store.mark_refunded(refund['telegram_payment_charge_id'],cid)
+        return
+    sender = (cb if cb else msg).get('from',{}).get('id')
+    if sender != cid: return
+    payment = msg.get('successful_payment')
+    if payment:
+        status,order = store.record_payment(payment.get('invoice_payload',''),cid,
+            payment.get('currency'),payment.get('total_amount'),payment.get('telegram_payment_charge_id'))
+        if status == 'paid':
+            birth = order['birth_date']
+            api.say(cid,'Оплату підтверджено. Доступ для дати '+birth+' збережено.')
+            if order['product'] != 'all': show_position(api,cid,birth,int(order['product']),store)
+            show_menu(api,cid,birth,store,prices)
+        elif status == 'refund_pending':
+            api.say(cid,'Цей платіж не потрібен для відкриття доступу. Повернення Stars обробляється. '
+                        'Якщо потрібна допомога, напишіть '+SUPPORT+'.')
+        return
     if cb:
         api.call('answerCallbackQuery',{'callback_query_id':cb['id']})
-        action,_,value=cb.get('data','').partition(':')
-        if action not in ('positions','calc','png'): return
-    else:
-        value=msg.get('text','').strip()
-        command=value.split(' ',1)[0].split('@')[0]
-        if command in ('/start','/help'):
-            api.say(cid,'Вітаю! Це калькулятор портрету Надії Царенко.\n\nНадішліть дату народження: ДД.ММ.РРРР.\nНаприклад: 16.09.1998\n\nВи отримаєте схему основного, кармічного й тіньового портретів.\n/start — новий розрахунок\n/privacy — про дані')
+        args = cb.get('data','').split(':')
+        action = args[0]
+        if action == 'purchases': show_purchases(api,cid,store); return
+        if len(args) < 2: return
+        birth = args[1]
+        try: calculate(birth)
+        except ValueError:
+            api.say(cid,'Надішліть дату народження у форматі ДД.ММ.РРРР.'); return
+        if action in ('menu','positions','calc'):
+            show_menu(api,cid,birth,store,prices); return
+        if action in ('position','offer','invoice'):
+            if len(args) != 3: return
+            product = args[2]
+            if product != 'all' and (not product.isdigit() or int(product) not in POSITIONS): return
+            if product != 'all': product = str(int(product))
+            if action == 'position' and product != 'all':
+                if show_position(api,cid,birth,int(product),store): return
+            try:
+                if action == 'invoice': send_invoice(api,cid,birth,product,store,prices)
+                else: show_offer(api,cid,birth,product,store,prices)
+            except PaymentError as e: api.say(cid,str(e),reply_markup=back_menu(birth))
             return
-        if command=='/privacy':
-            api.say(cid,'Бот обробляє дату лише для розрахунку й не записує її у власну базу або журнал. Дата та результати залишаються в історії вашого чату Telegram. Службовий файл offset.json містить тільки номер обробленого оновлення. Кнопки під результатом містять введену дату для повторного обчислення.')
-            return
-        action='portrait'
-    try: p,steps=calculate(value)
-    except ValueError as e:
-        api.say(cid,str(e)); return
-    if action in ('positions', 'calc'):
-        api.say(cid, describe_positions(value, p)); return
-    blob=draw_portrait(value,p)
-    if action=='png':
-        api.call('sendDocument',{'chat_id':cid,'caption':'Схема без стиснення · '+value},('document',blob)); return
-    api.call('sendPhoto',{'chat_id':cid,'caption':'Ваш портрет · '+value+'\nНадія Царенко\n\nДля нового розрахунку надішліть іншу дату.', 'reply_markup':{'inline_keyboard':[[{'text':'Що означають позиції','callback_data':'positions:'+value}],[{'text':'Завантажити PNG','callback_data':'png:'+value}]]}},('photo',blob))
+        if action != 'png': return
+        calculated,_=calculate(birth)
+        api.call('sendDocument',{'chat_id':cid,'caption':'Схема без стиснення · '+birth},
+                 ('document',draw_portrait(birth,calculated)))
+        return
+    text = msg.get('text','').strip()
+    command = text.split(' ',1)[0].split('@')[0]
+    if command in ('/start','/help'):
+        api.say(cid,'Вітаю! Це портрет Надії Царенко.\n\nНадішліть дату народження: ДД.ММ.РРРР. '
+            'Наприклад: 16.09.1998.\n\nВи отримаєте схему та меню 33 позицій. '
+            '21 і 30 безкоштовні. Інші описи можна придбати окремо або пакетом для однієї дати.\n\n'
+            '/purchases · Ваші покупки\n/terms · Умови покупки\n/paysupport · Допомога з оплатою\n/privacy · Дані')
+        return
+    if command == '/terms': api.say(cid,TERMS); return
+    if command in ('/paysupport','/support'):
+        api.say(cid,'Допомога з покупками та поверненнями: '+SUPPORT+'. '
+            'Додайте квитанцію Telegram і дату народження, для якої придбали опис. '
+            'Питання оплати вирішує автор бота, а не підтримка Telegram.'); return
+    if command == '/privacy':
+        api.say(cid,'Для збереження покупок бот записує Ваш Telegram ID, дату народження, '
+            'придбані позиції, суму Stars та ідентифікатор платежу. Ці дані дозволяють '
+            'повторно відкривати оплачені описи та обробляти повернення. '
+            'Дати з рахунків зберігаються навіть до завершення оплати. '
+            'Дати, для яких Ви лише переглянули схему й не створювали рахунку, окремо не записуються. '
+            'Повідомлення та результати залишаються в історії чату Telegram. '
+            'Дані банківської картки бот не отримує. Питання щодо даних: '+SUPPORT+'.'); return
+    if command == '/purchases': show_purchases(api,cid,store); return
+    try: calculated,_ = calculate(text)
+    except ValueError as e: api.say(cid,str(e)); return
+    api.call('sendPhoto',{'chat_id':cid,'caption':'Ваш портрет · '+text+'\nНадія Царенко',
+        'reply_markup':{'inline_keyboard':[
+            [{'text':'Відкрити 33 позиції','callback_data':'menu:'+text}],
+            [{'text':'Завантажити PNG','callback_data':'png:'+text}]]}},
+        ('photo',draw_portrait(text,calculated)))
+    show_menu(api,cid,text,store,prices)
+
+def process_refunds(api,store):
+    for row in store.pending_refunds()[:10]:
+        try:
+            api.call('refundStarPayment',{'user_id':row['user_id'],
+                     'telegram_payment_charge_id':row['charge_id']})
+            store.mark_refunded(row['charge_id'],row['user_id'])
+        except APIError:
+            print('Повернення очікує повторної обробки.',flush=True)
+
+def storage_path(prices):
+    volume = os.getenv('RAILWAY_VOLUME_MOUNT_PATH')
+    directory = Path(os.getenv('DATA_DIR') or volume or ROOT/'data').resolve()
+    if os.getenv('RAILWAY_ENVIRONMENT_ID') and (prices.single or prices.bundle):
+        if not volume or not directory.is_relative_to(Path(volume).resolve()):
+            raise SystemExit('Перед увімкненням оплати підключіть Railway Volume і розмістіть DATA_DIR на ньому.')
+    return directory/'purchases.sqlite3'
 
 def main():
-    load_env(); token=os.getenv('TELEGRAM_BOT_TOKEN','')
-    if not token or token=='PASTE_TOKEN_HERE':
-        raise SystemExit('Додайте TELEGRAM_BOT_TOKEN у файл .env. Не публікуйте токен.')
-    api=Telegram(token)
-    try:
-        api.call('getMe')
-        if api.call('getWebhookInfo').get('url'):
-            raise SystemExit('У бота вже налаштований webhook. Вимкніть його перед запуском polling.')
-        api.call('setMyCommands',{'commands':[{'command':'start','description':'Новий розрахунок'},{'command':'help','description':'Як користуватися'},{'command':'privacy','description':'Обробка даних'}]})
-    except APIError as e:
-        raise SystemExit(f'Не вдалося підключитися до Telegram (код {e.code}). Перевірте токен і мережу.') from None
-    state=ROOT/'offset.json'
-    try: offset=json.loads(state.read_text())['offset']
-    except (OSError,ValueError,KeyError): offset=0
-    print('Бот запущений. Зупинка: Ctrl+C. Дати й токен не журналюються.',flush=True)
+    load_env()
+    token = os.getenv('TELEGRAM_BOT_TOKEN','')
+    if not token or token == 'PASTE_TOKEN_HERE': raise SystemExit('Додайте TELEGRAM_BOT_TOKEN у змінні середовища.')
+    prices = Prices()
+    store = Store(storage_path(prices))
+    api = Telegram(token)
+    api.call('getMe')
+    if api.call('getWebhookInfo').get('url'):
+        raise SystemExit('У бота вже налаштований webhook. Вимкніть його перед запуском polling.')
+    commands = [('start','Новий розрахунок'),('purchases','Мої покупки'),('terms','Умови покупки'),
+                ('paysupport','Допомога з оплатою'),('privacy','Обробка даних')]
+    api.call('setMyCommands',{'commands':[{'command':c,'description':d} for c,d in commands]})
+    offset = store.offset()
+    print('Бот запущено. Оплати зберігаються в базі; персональні дані не журналюються.',flush=True)
     while True:
         try:
-            updates=api.call('getUpdates',{'offset':offset,'timeout':25,'allowed_updates':['message','callback_query']})
+            updates = api.call('getUpdates',{'offset':offset,'timeout':25,
+                       'allowed_updates':['message','callback_query','pre_checkout_query']})
+            # Answer checkout before slow image work; then process in update order for a durable cursor.
+            answered = set()
             for update in updates:
-                try: handle(api,update)
+                if 'pre_checkout_query' in update:
+                    handle(api,update,store,prices);answered.add(update['update_id'])
+            for update in updates:
+                try:
+                    if update['update_id'] not in answered: handle(api,update,store,prices)
                 except APIError as e:
-                    print(f'Не вдалося надіслати відповідь (код {e.code}); користувач може повторити запит.',flush=True)
-                    if e.retry: time.sleep(min(e.retry,60))
-                offset=update['update_id']+1
-                tmp=state.with_suffix('.tmp'); tmp.write_text(json.dumps({'offset':offset})); tmp.replace(state)
+                    # Payment rights have already been committed before attempting delivery.
+                    print(f'Відповідь не доставлена (код {e.code}). Доступ зберігається у /purchases.',flush=True)
+                offset = update['update_id']+1
+                store.set_offset(offset)
+            process_refunds(api,store)
         except APIError as e:
-            if e.code in (401,409):
-                raise SystemExit(f'Зупинено: код {e.code}. Перевірте токен або інший запущений екземпляр.') from None
-            print(f'Повтор підключення (код {e.code}).',flush=True)
-            time.sleep(max(3,min(e.retry,60)))
+            if e.code in (401,409): raise SystemExit(f'Зупинено: код {e.code}. Перевірте токен або інший процес.') from None
+            time.sleep(max(3,min(e.retry,30)))
+        except (sqlite3.Error,OSError):
+            # Do not acknowledge unrecorded financial events. Retry the same updates.
+            print('Не вдалося записати стан. Обробку буде повторено.',flush=True)
+            time.sleep(3)
 
-if __name__=='__main__':
+if __name__ == '__main__':
     try: main()
-    except KeyboardInterrupt: print('\nБот зупинено.')
+    except KeyboardInterrupt: print('Бот зупинено.')
+

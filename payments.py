@@ -75,6 +75,10 @@ class Store:
             CREATE INDEX IF NOT EXISTS invitations_owner ON invitations(user_id, birth_date);
             CREATE TABLE IF NOT EXISTS invitation_pending (
                 user_id INTEGER PRIMARY KEY, token_hash TEXT NOT NULL, expires INTEGER NOT NULL);
+            CREATE TABLE IF NOT EXISTS access_extensions (
+                request_key TEXT PRIMARY KEY, owner_id INTEGER NOT NULL, user_id INTEGER NOT NULL,
+                invitation_id TEXT NOT NULL REFERENCES invitations(id), previous_until INTEGER NOT NULL,
+                access_until INTEGER NOT NULL, created INTEGER NOT NULL);
         ''')
         with self.db:
             self.db.execute("INSERT OR IGNORE INTO state VALUES ('invite_hash_key',?)", (secrets.token_hex(32),))
@@ -260,6 +264,34 @@ class Store:
     def had_membership(self, user_id):
         return bool(self.db.execute('SELECT 1 FROM invitations WHERE user_id=? AND redeemed IS NOT NULL',
                                    (user_id,)).fetchone())
+
+    def extend_membership(self, owner_id, user_id, request_key, now=None):
+        now = int(time.time()) if now is None else now
+        if not isinstance(user_id,int) or user_id <= 0 or not request_key:
+            raise PaymentError('Вкажіть числовий Telegram ID отримувача.')
+        self.db.execute('BEGIN IMMEDIATE')
+        try:
+            prior = self.db.execute('SELECT * FROM access_extensions WHERE request_key=?',(request_key,)).fetchone()
+            if prior:
+                if prior['owner_id'] != owner_id or prior['user_id'] != user_id:
+                    raise PaymentError('Цю команду вже виконано для іншого акаунту.')
+                self.db.commit()
+                return prior['access_until']
+            row = self.db.execute('''SELECT * FROM invitations WHERE user_id=? AND created_by=?
+                AND redeemed IS NOT NULL AND revoked IS NULL ORDER BY access_until DESC LIMIT 1''',
+                (user_id,owner_id)).fetchone()
+            if not row:
+                raise PaymentError('Активованого запрошення для цього ID не знайдено або його відкликано. '
+                                   'Перевірте ID. Новий користувач спочатку має активувати персональне запрошення.')
+            previous = row['access_until'] or 0
+            until = next_month(max(previous,now))
+            self.db.execute('UPDATE invitations SET access_until=? WHERE id=?',(until,row['id']))
+            self.db.execute('INSERT INTO access_extensions VALUES (?,?,?,?,?,?,?)',
+                            (request_key,owner_id,user_id,row['id'],previous,until,now))
+            self.db.commit()
+            return until
+        except Exception:
+            self.db.rollback(); raise
 
     def offset(self):
         row = self.db.execute("SELECT value FROM state WHERE key='offset'").fetchone()

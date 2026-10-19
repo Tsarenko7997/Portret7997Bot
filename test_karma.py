@@ -5,6 +5,7 @@ from unittest.mock import patch
 from portrait import calculate_karma, calculate
 from payments import Store, Prices
 from bot import handle, main_menu
+from render import draw_karma
 from test_payments import Fake, callback
 from test_invitations import message
 
@@ -45,10 +46,10 @@ class KarmaFlowTests(unittest.TestCase):
         handle(self.api,callback('section:karma'),self.store,self.prices)
         for birth in ['16.09.1998','01.01.2000']:
             handle(self.api,message(birth),self.store,self.prices)
-            text=self.api.calls[-1][1]['text']
-            self.assertIn('Карма +/− · '+birth,text)
-            self.assertIn('ПП5:',text); self.assertIn('ПМ5:',text)
-            self.assertFalse(any(c[0]=='sendPhoto' for c in self.api.calls))
+            method,data,file=self.api.calls[-1]
+            self.assertEqual(method,'sendPhoto')
+            self.assertIn('Карма +/− · '+birth,data['caption'])
+            self.assertEqual(file,('photo',draw_karma(calculate_karma(birth)),'karma.png'))
     def test_public_user_cannot_choose_full_karma(self):
         handle(self.api,callback('section:karma'),self.store,self.prices)
         self.assertIn('місячного доступу',self.api.calls[-1][1]['text'])
@@ -77,5 +78,15 @@ class KarmaFlowTests(unittest.TestCase):
         self.activate(); self.store.set_section(7,'karma')
         handle(self.api,callback('menu:16.09.1998'),self.store,self.prices)
         self.assertEqual(self.store.section(7),'portrait')
+    def test_png_download_requires_current_membership(self):
+        self.activate()
+        handle(self.api,callback('karma_png:16.09.1998'),self.store,self.prices)
+        method,data,file=self.api.calls[-1]
+        self.assertEqual(method,'sendDocument'); self.assertEqual(file[2],'karma.png')
+        self.api.calls.clear()
+        with patch('payments.time.time',return_value=self.store.membership_until(7)):
+            handle(self.api,callback('karma_png:16.09.1998'),self.store,self.prices)
+        self.assertFalse(any(c[0]=='sendDocument' for c in self.api.calls))
+        self.assertIn('100 грн',self.api.calls[-1][1]['text'])
 
 if __name__=='__main__': unittest.main()

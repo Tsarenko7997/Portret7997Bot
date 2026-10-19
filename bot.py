@@ -30,12 +30,38 @@ class APIError(Exception):
         self.code,self.retry=code,retry
         super().__init__(f'Telegram API: {code}')
 
+def instagram_nickname_link(method,data):
+    """Display the Instagram handle; Telegram link offsets count UTF-16 units."""
+    field = 'text' if method == 'sendMessage' else 'caption'
+    if method not in ('sendMessage','sendPhoto','sendDocument'):
+        return data
+    text = data.get(field,'')
+    if INSTAGRAM_URL not in text:
+        return data
+    entity_key = 'entities' if field == 'text' else 'caption_entities'
+    # These plain-text messages have no pre-existing formatting entities.
+    if data.get(entity_key) or data.get('parse_mode'):
+        return data
+    pieces = text.split(INSTAGRAM_URL)
+    result = pieces[0]
+    entities = []
+    for suffix in pieces[1:]:
+        entities.append({'type':'text_link',
+                         'offset':len(result.encode('utf-16-le'))//2,
+                         'length':len(TELEGRAM_HANDLE.encode('utf-16-le'))//2,
+                         'url':INSTAGRAM_URL})
+        result += TELEGRAM_HANDLE+suffix
+    updated = {**data,field:result,entity_key:entities}
+    if method == 'sendMessage':
+        updated['link_preview_options'] = {'is_disabled':True}
+    return updated
+
 class Telegram:
     def __init__(self, token):
         self.base='https://api.telegram.org/bot'+token+'/'
         if os.getenv('TELEGRAM_TEST_ENV')=='1':self.base+='test/'
     def call(self, method, data=None, file=None):
-        data=data or {}
+        data=instagram_nickname_link(method,data or {})
         headers={}
         if file:
             boundary='Nadia'+secrets.token_hex(12); parts=[]

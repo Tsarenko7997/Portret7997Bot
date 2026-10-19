@@ -42,8 +42,6 @@ def negative_description(position, arcanum, birth):
     entry = read_karma_catalog()[arcanum]
     parts = [f'Мінусова карма · Позиція {position}\nДата народження: {birth}',
              f"Аркан {arcanum} · {entry['title']}",
-             'Символічне трактування методики для самоспостереження. Воно не встановлює '
-             'подій минулих життів, не доводить Вашої провини й не визначає майбутнє.',
              'Кармічна тема. ' + entry['theme'],
              'Можливі труднощі. ' + entry['problems'],
              'Внутрішні блоки. ' + entry['blocks'],
@@ -83,9 +81,6 @@ def positive_description(position,arcanum,birth):
     entry = read_positive_karma_catalog()[arcanum]
     parts = [f'Плюсова карма · Позиція {position}\nДата народження: {birth}',
              f"Аркан {arcanum} · {entry['title']}",
-             'Символічне трактування талантів і можливостей для самоспостереження. '
-             'Воно не встановлює подій минулих життів і не гарантує здоров’я, доходу, '
-             'спадщини чи народження дітей. Професійна робота потребує належної освіти й підготовки.',
              'Ваш ресурс. ' + entry['resource'],
              'Можливі прояви. ' + entry['expression'],
              'Що може послаблювати ресурс. ' + entry['balance'],CTA]

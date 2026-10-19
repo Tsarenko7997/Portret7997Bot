@@ -131,11 +131,7 @@ def show_karma(api,cid,birth,store):
 
 def show_portrait(api,cid,birth,store,prices):
     calculated,_ = calculate(birth)
-    api.call('sendPhoto',{'chat_id':cid,'caption':'Ваш портрет · '+birth+'\nInstagram: @lakshmi_775',
-        'reply_markup':{'inline_keyboard':[
-            [{'text':'Відкрити 33 позиції','callback_data':'menu:'+birth}],
-            [{'text':'Карма +/−','callback_data':'section:karma'}],
-            [{'text':'Головне меню','callback_data':'home'}]]}},
+    api.call('sendPhoto',{'chat_id':cid,'caption':'Ваш портрет · '+birth+'\nInstagram: @lakshmi_775'},
         ('photo',draw_portrait(birth,calculated)))
     show_menu(api,cid,birth,store,prices)
 
@@ -204,11 +200,21 @@ def show_menu(api, cid, birth, store, prices):
     rows.append([{'text':'Карма +/−','callback_data':'section:karma'}])
     rows.append([{'text':'Головне меню','callback_data':'home'}])
     price = f'Одна платна позиція: {prices.single} ⭐.\n' if prices.single else ''
-    api.say(cid, 'Ваші позиції · '+birth+'\n\n'
+    meanings = []
+    for number in range(1,34):
+        position = POSITIONS[number]
+        meaning = position['meaning'].strip().rstrip('.')
+        meaning = meaning[:1].upper()+meaning[1:]
+        meanings.append(f"{number}. {position['key']} · {meaning}.")
+    overview = 'Ваші позиції · '+birth+'\n\nЩо означає кожна позиція\n\n'+'\n\n'.join(meanings)
+    overview += '\n\n'+(
         '21 і 30 відкриваються безкоштовно. Натисніть номер, щоб переглянути опис.\n'
         '🔒 Доступ до позиції для цієї дати закритий.\n'+price+
-        '\n'+access_text(store,cid),
-        reply_markup={'inline_keyboard': rows})
+        '\n'+access_text(store,cid))
+    messages = list(chunks(overview))
+    for index,text in enumerate(messages):
+        extra = {'reply_markup':{'inline_keyboard':rows}} if index == len(messages)-1 else {}
+        api.say(cid,text,**extra)
 
 def show_position(api, cid, birth, number, store):
     if not store.has(cid,birth,number): return False

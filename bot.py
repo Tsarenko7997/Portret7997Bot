@@ -10,7 +10,7 @@ import urllib.error
 from pathlib import Path
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from portrait import calculate, calculate_karma
+from portrait import calculate, calculate_karma, calculate_social
 from render import draw_portrait, draw_karma
 from catalog import POSITIONS, FREE, description, chunks, TELEGRAM_HANDLE, TELEGRAM_URL, INSTAGRAM_URL, CONTACTS
 from karma_catalog import negative_description, positive_description
@@ -99,7 +99,7 @@ SECTIONS = {
 }
 
 def main_menu():
-    buttons = [{'text':label if key in ('portrait','karma') else label+' · Незабаром',
+    buttons = [{'text':label if key in ('portrait','karma','social') else label+' · Незабаром',
                 'callback_data':'section:'+key} for key,label in SECTIONS.items()]
     return {'inline_keyboard':[
         [buttons[0]], buttons[1:3], buttons[3:5], buttons[5:7],
@@ -112,7 +112,8 @@ def show_home(api,cid,store):
     birth = store.current_birth(cid)
     selected = ('Поточна дата: '+birth+'. Щоб змінити її, надішліть нову дату.\n\n') if birth else ''
     api.say(cid,'Вітаю! Це бот @lakshmi_775.\n\n'
-        'Оберіть розділ. «Портрет» та «Карма +/−» уже доступні, інші розділи готуються.\n\n'
+        'Оберіть розділ. Доступні «Портрет», «Карма +/−» та розрахунок соціального призначення. '
+        'Інші розділи готуються.\n\n'
         +selected+access_text(store,cid),reply_markup=main_menu())
 
 def show_section(api,cid,key,store,prices):
@@ -137,12 +138,40 @@ def show_section(api,cid,key,store,prices):
             store.set_section(cid,'portrait')
             text = ('Карма +/−\n\nРозрахунок карми доступний під час повного місячного доступу.\n\n'
                     +access_text(store,cid)+'\n\nЗвернутися до автора: '+SUPPORT+'.')
+    elif key == 'social':
+        if store.membership_until(cid) > int(time.time()):
+            store.set_section(cid,'social')
+            if birth:
+                show_social(api,cid,birth,store); return
+            text = ('Соціальне призначення\n\nНадішліть дату народження у форматі ДД.ММ.РРРР. '
+                    'Ви отримаєте свій аркан соціального призначення. Детальні описи готуються.')
+        else:
+            store.set_section(cid,'portrait')
+            text = ('Соціальне призначення доступне під час повного місячного доступу.\n\n'
+                    +access_text(store,cid))
     else:
         text = SECTIONS[key]+'\n\nЦей розділ готується. Розрахунок ще недоступний. '
         text += 'Зараз Ви можете скористатися розділом «Портрет».'
         if birth: text += '\n\nПоточна дата: '+birth+'.'
     api.say(cid,text,reply_markup={'inline_keyboard':[
         [{'text':'Головне меню','callback_data':'home'}]]})
+
+def show_social(api,cid,birth,store):
+    if store.membership_until(cid) <= int(time.time()):
+        api.say(cid,'Соціальне призначення доступне під час повного місячного доступу.\n\n'
+                +access_text(store,cid),reply_markup={'inline_keyboard':[
+                    [{'text':'Мій доступ','callback_data':'access'}],
+                    [{'text':'Головне меню','callback_data':'home'}]]})
+        return
+    arcanum = calculate_social(birth)
+    api.say(cid,'Соціальне призначення · '+birth+'\n\n'
+            +f'Ваш аркан: {arcanum}.\n\n'
+            +'Детальний опис соціального призначення готується.\n\n'
+            +'Для нового розрахунку надішліть іншу дату.\n\n'+CONTACTS,
+            reply_markup={'inline_keyboard':[
+                [{'text':'Портрет','callback_data':'section:portrait'},
+                 {'text':'Карма +/−','callback_data':'section:karma'}],
+                [{'text':'Головне меню','callback_data':'home'}]]})
 
 def show_karma(api,cid,birth,store):
     if store.membership_until(cid) <= int(time.time()):
@@ -498,6 +527,7 @@ def handle(api, update, store, prices):
         show_home(api,cid,store); return
     if command == '/portrait': show_section(api,cid,'portrait',store,prices); return
     if command == '/karma': show_section(api,cid,'karma',store,prices); return
+    if command == '/social': show_section(api,cid,'social',store,prices); return
     if command == '/forgetdate':
         store.forget_birth(cid)
         api.say(cid,'Поточну дату видалено. Надішліть нову дату народження у форматі ДД.ММ.РРРР.'); return
@@ -527,6 +557,8 @@ def handle(api, update, store, prices):
     store.set_current_birth(cid,text)
     if store.section(cid) == 'karma':
         show_karma(api,cid,text,store); return
+    if store.section(cid) == 'social':
+        show_social(api,cid,text,store); return
     show_portrait(api,cid,text,store,prices)
 
 def process_refunds(api,store):
@@ -556,7 +588,7 @@ def main():
     api.call('getMe')
     if api.call('getWebhookInfo').get('url'):
         raise SystemExit('У бота вже налаштований webhook. Вимкніть його перед запуском polling.')
-    commands = [('start','Головне меню'),('menu','Розділи бота'),('portrait','Портрет'),('karma','Карма +/−'),('forgetdate','Видалити поточну дату'),('access','Мій доступ'),('purchases','Попередні покупки'),('myid','Мій Telegram ID'),('terms','Умови покупки'),
+    commands = [('start','Головне меню'),('menu','Розділи бота'),('portrait','Портрет'),('karma','Карма +/−'),('social','Соціальне призначення'),('forgetdate','Видалити поточну дату'),('access','Мій доступ'),('purchases','Попередні покупки'),('myid','Мій Telegram ID'),('terms','Умови покупки'),
                 ('paysupport','Допомога з оплатою'),('privacy','Обробка даних')]
     api.call('setMyCommands',{'commands':[{'command':c,'description':d} for c,d in commands]})
     offset = store.offset()

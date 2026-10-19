@@ -7,6 +7,11 @@ def reduce22(n):
         raise ValueError('Зведення від’ємного числа потребує правила різниці.')
     return (n - 1) % 22 + 1
 
+def calculate_social(value):
+    """Sum every digit of the validated birth date, then reduce by 22."""
+    calculate(value)
+    return reduce22(sum(int(digit) for digit in value if digit.isdigit()))
+
 def calculate_karma(value):
     """User's karma worksheet: ПП1 corrected to П4; zero differences become 22."""
     portrait, _ = calculate(value)

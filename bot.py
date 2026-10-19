@@ -61,7 +61,7 @@ class Telegram:
 
 SUPPORT = '@Lakshmi_775'
 SECTIONS = {
-    'portrait':'Портрет 33П',
+    'portrait':'Портрет',
     'karma':'Карма +/−',
     'matrix':'Матриця',
     'money':'Грошове призначення',
@@ -84,7 +84,7 @@ def show_home(api,cid,store):
     birth = store.current_birth(cid)
     selected = ('Поточна дата: '+birth+'. Щоб змінити її, надішліть нову дату.\n\n') if birth else ''
     api.say(cid,'Вітаю! Це бот @lakshmi_775.\n\n'
-        'Оберіть розділ. «Портрет 33П» та «Карма +/−» уже доступні, інші розділи готуються.\n\n'
+        'Оберіть розділ. «Портрет» та «Карма +/−» уже доступні, інші розділи готуються.\n\n'
         +selected+access_text(store,cid),reply_markup=main_menu())
 
 def show_section(api,cid,key,store,prices):
@@ -94,7 +94,7 @@ def show_section(api,cid,key,store,prices):
         store.set_section(cid,'portrait')
         if birth:
             show_portrait(api,cid,birth,store,prices); return
-        text = ('Портрет 33П\n\nНадішліть дату народження у форматі ДД.ММ.РРРР. '
+        text = ('Портрет\n\nНадішліть дату народження у форматі ДД.ММ.РРРР. '
                 'Наприклад: 16.09.1998.\nВи отримаєте схему та описи позицій. '
                 '21 і 30 відкриті для всіх; усі 33 доступні під час повного доступу.')
     elif key == 'karma':
@@ -111,7 +111,7 @@ def show_section(api,cid,key,store,prices):
                     +access_text(store,cid)+'\n\nЗвернутися до автора: '+SUPPORT+'.')
     else:
         text = SECTIONS[key]+'\n\nЦей розділ готується. Розрахунок ще недоступний. '
-        text += 'Зараз Ви можете скористатися розділом «Портрет 33П».'
+        text += 'Зараз Ви можете скористатися розділом «Портрет».'
         if birth: text += '\n\nПоточна дата: '+birth+'.'
     api.say(cid,text,reply_markup={'inline_keyboard':[
         [{'text':'Головне меню','callback_data':'home'}]]})
@@ -125,7 +125,7 @@ def show_karma(api,cid,birth,store):
     result = calculate_karma(birth)
     api.call('sendPhoto',{'chat_id':cid,'caption':'Карма +/− · '+birth+'\nInstagram: @lakshmi_775\n\n'
         'Для нового розрахунку надішліть іншу дату.',
-        'reply_markup':{'inline_keyboard':[[{'text':'Портрет 33П','callback_data':'section:portrait'}],
+        'reply_markup':{'inline_keyboard':[[{'text':'Портрет','callback_data':'section:portrait'}],
                                          [{'text':'Головне меню','callback_data':'home'}]]}},
         ('photo',draw_karma(result),'karma.png'))
 
@@ -479,7 +479,7 @@ def main():
     api.call('getMe')
     if api.call('getWebhookInfo').get('url'):
         raise SystemExit('У бота вже налаштований webhook. Вимкніть його перед запуском polling.')
-    commands = [('start','Головне меню'),('menu','Розділи бота'),('portrait','Портрет 33П'),('karma','Карма +/−'),('forgetdate','Видалити поточну дату'),('access','Мій доступ'),('purchases','Попередні покупки'),('myid','Мій Telegram ID'),('terms','Умови покупки'),
+    commands = [('start','Головне меню'),('menu','Розділи бота'),('portrait','Портрет'),('karma','Карма +/−'),('forgetdate','Видалити поточну дату'),('access','Мій доступ'),('purchases','Попередні покупки'),('myid','Мій Telegram ID'),('terms','Умови покупки'),
                 ('paysupport','Допомога з оплатою'),('privacy','Обробка даних')]
     api.call('setMyCommands',{'commands':[{'command':c,'description':d} for c,d in commands]})
     offset = store.offset()

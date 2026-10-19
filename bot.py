@@ -1,5 +1,6 @@
 """Telegram portrait bot with date-scoped paid interpretations."""
 import json
+import lzma
 import os
 import secrets
 import time
@@ -12,6 +13,7 @@ from zoneinfo import ZoneInfo
 from portrait import calculate, calculate_karma
 from render import draw_portrait, draw_karma
 from catalog import POSITIONS, FREE, description, chunks
+from karma_catalog import negative_description
 from payments import Store, Prices, PaymentError
 
 ROOT=Path(__file__).parent
@@ -104,7 +106,8 @@ def show_section(api,cid,key,store,prices):
                 show_karma(api,cid,birth,store); return
             text = ('Карма +/−\n\nНадішліть дату народження у форматі ДД.ММ.РРРР. '
                     'Ви отримаєте п’ять позицій плюсової та п’ять позицій мінусової карми. '
-                    'Зараз доступний числовий розрахунок. Трактування готуються.')
+                    'Для мінусової карми доступні описи всіх 22 арканів. '
+                    'Плюсова карма поки має числовий розрахунок.')
         else:
             store.set_section(cid,'portrait')
             text = ('Карма +/−\n\nРозрахунок карми доступний під час повного місячного доступу.\n\n'
@@ -123,11 +126,38 @@ def show_karma(api,cid,birth,store):
                                                 [{'text':'Головне меню','callback_data':'home'}]]})
         return
     result = calculate_karma(birth)
+    buttons = [{'text':f'Мінус {i} · {value}',
+                'callback_data':f'karma_minus:{birth}:{i}'}
+               for i,value in enumerate(result['negative'],1)]
     api.call('sendPhoto',{'chat_id':cid,'caption':'Карма +/− · '+birth+'\nInstagram: @lakshmi_775\n\n'
+        'Натисніть позицію мінусової карми нижче, щоб прочитати її опис. '
+        'Трактування плюсової карми готуються.\n\n'
         'Для нового розрахунку надішліть іншу дату.',
-        'reply_markup':{'inline_keyboard':[[{'text':'Портрет','callback_data':'section:portrait'}],
+        'reply_markup':{'inline_keyboard':[buttons[:3],buttons[3:],
+                                         [{'text':'Портрет','callback_data':'section:portrait'}],
                                          [{'text':'Головне меню','callback_data':'home'}]]}},
         ('photo',draw_karma(result),'karma.png'))
+
+def show_karma_minus(api,cid,birth,position,store):
+    # A forged or old callback must never bypass the current membership window.
+    if store.membership_until(cid) <= int(time.time()):
+        show_karma(api,cid,birth,store)
+        return
+    if not 1 <= position <= 5:
+        return
+    store.set_section(cid,'karma')
+    arcanum = calculate_karma(birth)['negative'][position-1]
+    try:
+        text = negative_description(position,arcanum,birth)
+    except (OSError,ValueError,KeyError,lzma.LZMAError):
+        api.say(cid,'Описи мінусової карми тимчасово недоступні. Напишіть '+SUPPORT+'.')
+        return
+    messages = list(chunks(text))
+    for i,part in enumerate(messages):
+        extra = {'reply_markup':{'inline_keyboard':[
+            [{'text':'Карма +/−','callback_data':'section:karma'}],
+            [{'text':'Головне меню','callback_data':'home'}]]}} if i == len(messages)-1 else {}
+        api.say(cid,part,**extra)
 
 def show_portrait(api,cid,birth,store,prices):
     calculated,_ = calculate(birth)
@@ -389,11 +419,15 @@ def handle(api, update, store, prices):
         birth = args[1]
         # Navigation and position buttons follow the latest date typed by this user.
         # Historical invoice/offer payloads keep their original date and consent.
-        if action in ('menu','positions','calc','position'):
+        if action in ('menu','positions','calc','position','karma_minus'):
             birth = store.current_birth(cid) or birth
         try: calculate(birth)
         except ValueError:
             api.say(cid,'Надішліть дату народження у форматі ДД.ММ.РРРР.'); return
+        if action == 'karma_minus':
+            if len(args) == 3 and args[2].isdigit() and 1 <= int(args[2]) <= 5:
+                show_karma_minus(api,cid,birth,int(args[2]),store)
+            return
         if action in ('menu','positions','calc'):
             store.set_section(cid,'portrait')
             show_menu(api,cid,birth,store,prices); return

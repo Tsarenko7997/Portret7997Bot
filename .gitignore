@@ -8,3 +8,4 @@ data/
 backups/
 # Paid interpretation texts must remain private.
 content/positions.json
+content/karma_minus.json

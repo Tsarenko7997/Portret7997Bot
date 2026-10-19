@@ -13,6 +13,24 @@ def calculate_social(value):
     calculate(value)
     return reduce22(sum(int(digit) for digit in value if digit.isdigit()))
 
+def calculate_matrix(value):
+    """Worksheet: fixed constant 2 before 2000, +19 from 01.01.2000.
+
+    Keep all five working numbers unreduced; count digits 1..9 in the
+    original date and every working number, including the constant.
+    """
+    calculate(value)
+    born = datetime.strptime(value, '%d.%m.%Y').date()
+    digit_sum = lambda n: sum(int(c) for c in str(n))
+    first = sum(int(c) for c in value if c.isdigit())
+    second = digit_sum(first)
+    constant = 2 if born.year < 2000 else 19
+    fourth = first - constant if born.year < 2000 else first + constant
+    numbers = [first,second,constant,fourth,digit_sum(fourth)]
+    digits = value + ''.join(map(str,numbers))
+    counts = {i:digits.count(str(i)) for i in range(1,10)}
+    return {'numbers':numbers,'counts':counts,'operation':'−' if born.year < 2000 else '+'}
+
 UKRAINIAN_ALPHABET = 'АБВГҐДЕЄЖЗИІЇЙКЛМНОПРСТУФХЦЧШЩЬЮЯ'
 NAME_VALUES = {letter:i%9+1 for i,letter in enumerate(UKRAINIAN_ALPHABET)}
 

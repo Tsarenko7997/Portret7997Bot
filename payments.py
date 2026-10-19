@@ -267,10 +267,10 @@ class Store:
 
     def section(self,user_id):
         row = self.db.execute('SELECT value FROM state WHERE key=?',('section:'+str(user_id),)).fetchone()
-        return row[0] if row and row[0] in ('portrait','karma','social','money') else 'portrait'
+        return row[0] if row and row[0] in ('portrait','karma','social','money','matrix') else 'portrait'
 
     def set_section(self,user_id,section):
-        if section not in ('portrait','karma','social','money'): raise ValueError('Unknown section')
+        if section not in ('portrait','karma','social','money','matrix'): raise ValueError('Unknown section')
         with self.db:
             self.db.execute('INSERT OR REPLACE INTO state VALUES (?,?)',('section:'+str(user_id),section))
 

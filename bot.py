@@ -10,8 +10,8 @@ import urllib.error
 from pathlib import Path
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from portrait import calculate, calculate_karma, calculate_social, calculate_money
-from render import draw_portrait, draw_karma
+from portrait import calculate, calculate_karma, calculate_social, calculate_money, calculate_matrix
+from render import draw_portrait, draw_karma, draw_matrix
 from catalog import POSITIONS, FREE, description, chunks, TELEGRAM_HANDLE, TELEGRAM_URL, INSTAGRAM_URL, CONTACTS
 from karma_catalog import negative_description, positive_description
 from payments import Store, Prices, PaymentError
@@ -99,7 +99,7 @@ SECTIONS = {
 }
 
 def main_menu():
-    buttons = [{'text':label if key in ('portrait','karma','social','money') else label+' · Незабаром',
+    buttons = [{'text':label if key in ('portrait','karma','matrix','social','money') else label+' · Незабаром',
                 'callback_data':'section:'+key} for key,label in SECTIONS.items()]
     return {'inline_keyboard':[
         [buttons[0]], buttons[1:3], buttons[3:5], buttons[5:7],
@@ -112,7 +112,7 @@ def show_home(api,cid,store):
     birth = store.current_birth(cid)
     selected = ('Поточна дата: '+birth+'. Щоб змінити її, надішліть нову дату.\n\n') if birth else ''
     api.say(cid,'Вітаю! Це бот @lakshmi_775.\n\n'
-        'Оберіть розділ. Доступні «Портрет», «Карма +/−», розрахунки грошового й соціального призначення. '
+        'Оберіть розділ. Доступні «Портрет», «Карма +/−», «Матриця», розрахунки грошового й соціального призначення. '
         'Інші розділи готуються.\n\n'
         +selected+access_text(store,cid),reply_markup=main_menu())
 
@@ -138,6 +138,16 @@ def show_section(api,cid,key,store,prices):
             store.set_section(cid,'portrait')
             text = ('Карма +/−\n\nРозрахунок карми доступний під час повного місячного доступу.\n\n'
                     +access_text(store,cid)+'\n\nЗвернутися до автора: '+SUPPORT+'.')
+    elif key == 'matrix':
+        if store.membership_until(cid) > int(time.time()):
+            store.set_section(cid,'matrix')
+            if birth:
+                show_matrix(api,cid,birth,store); return
+            text = ('Матриця\n\nНадішліть дату народження у форматі ДД.ММ.РРРР. '
+                    'Ви отримаєте таблицю з цифрами Вашої дати та розрахунку.')
+        else:
+            store.set_section(cid,'portrait')
+            text = ('Матриця доступна під час повного місячного доступу.\n\n'+access_text(store,cid))
     elif key == 'social':
         if store.membership_until(cid) > int(time.time()):
             store.set_section(cid,'social')
@@ -166,6 +176,27 @@ def show_section(api,cid,key,store,prices):
         if birth: text += '\n\nПоточна дата: '+birth+'.'
     api.say(cid,text,reply_markup={'inline_keyboard':[
         [{'text':'Головне меню','callback_data':'home'}]]})
+
+def show_matrix(api,cid,birth,store):
+    if store.membership_until(cid) <= int(time.time()):
+        api.say(cid,'Матриця доступна під час повного місячного доступу.\n\n'+access_text(store,cid),
+                reply_markup={'inline_keyboard':[
+                    [{'text':'Мій доступ','callback_data':'access'}],
+                    [{'text':'Головне меню','callback_data':'home'}]]})
+        return
+    result = calculate_matrix(birth)
+    first,second,constant,fourth,fifth = result['numbers']
+    caption = ('Матриця · '+birth+'\n\n'
+               +f'Сума цифр дати: {first}.\nСума цифр числа {first}: {second}.\n'
+               +f'Константа: {constant}.\n{first} {result["operation"]} {constant} = {fourth}.\n'
+               +f'Сума цифр числа {fourth}: {fifth}.\n\n'
+               +'У таблиці враховано цифри дати та всіх п’яти чисел розрахунку. Нулі пропущено.\n'
+               +'Детальні описи матриці готуються. Для нового розрахунку надішліть іншу дату.\n\n'
+               +CONTACTS)
+    api.call('sendPhoto',{'chat_id':cid,'caption':caption,'reply_markup':{'inline_keyboard':[
+        [{'text':'Портрет','callback_data':'section:portrait'},
+         {'text':'Карма +/−','callback_data':'section:karma'}],
+        [{'text':'Головне меню','callback_data':'home'}]]}},('photo',draw_matrix(birth,result),'matrix.png'))
 
 def show_money(api,cid,birth,store):
     if store.membership_until(cid) <= int(time.time()):
@@ -568,6 +599,7 @@ def handle(api, update, store, prices):
     if command == '/karma': show_section(api,cid,'karma',store,prices); return
     if command == '/social': show_section(api,cid,'social',store,prices); return
     if command == '/money': show_section(api,cid,'money',store,prices); return
+    if command == '/matrix': show_section(api,cid,'matrix',store,prices); return
     if command == '/forgetdate':
         store.forget_birth(cid)
         api.say(cid,'Поточну дату та ім’я для грошового призначення видалено. '
@@ -609,6 +641,8 @@ def handle(api, update, store, prices):
         show_karma(api,cid,text,store); return
     if store.section(cid) == 'social':
         show_social(api,cid,text,store); return
+    if store.section(cid) == 'matrix':
+        show_matrix(api,cid,text,store); return
     if store.section(cid) == 'money':
         show_money(api,cid,text,store); return
     show_portrait(api,cid,text,store,prices)
@@ -640,7 +674,7 @@ def main():
     api.call('getMe')
     if api.call('getWebhookInfo').get('url'):
         raise SystemExit('У бота вже налаштований webhook. Вимкніть його перед запуском polling.')
-    commands = [('start','Головне меню'),('menu','Розділи бота'),('portrait','Портрет'),('karma','Карма +/−'),('social','Соціальне призначення'),('money','Грошове призначення'),('forgetdate','Видалити поточну дату'),('access','Мій доступ'),('purchases','Попередні покупки'),('myid','Мій Telegram ID'),('terms','Умови покупки'),
+    commands = [('start','Головне меню'),('menu','Розділи бота'),('portrait','Портрет'),('karma','Карма +/−'),('social','Соціальне призначення'),('money','Грошове призначення'),('matrix','Матриця'),('forgetdate','Видалити поточну дату'),('access','Мій доступ'),('purchases','Попередні покупки'),('myid','Мій Telegram ID'),('terms','Умови покупки'),
                 ('paysupport','Допомога з оплатою'),('privacy','Обробка даних')]
     api.call('setMyCommands',{'commands':[{'command':c,'description':d} for c,d in commands]})
     offset = store.offset()

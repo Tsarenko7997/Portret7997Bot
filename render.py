@@ -4,6 +4,28 @@ from PIL import Image, ImageDraw, ImageFont
 
 ROOT=Path(__file__).parent
 
+def draw_matrix(value,result):
+    im=Image.new('RGB',(1200,1200),'#fcfbf9'); d=ImageDraw.Draw(im)
+    font=lambda size: ImageFont.truetype(str(ROOT/'assets'/'DejaVuSans.ttf'),size)
+    def text(x,y,t,size=38,fill='#202934'):
+        d.text((x,y),t,font=font(size),fill=fill,anchor='mm')
+    text(600,55,'@lakshmi_775',26)
+    text(600,115,'Матриця',54)
+    text(600,178,value,34)
+    for col in range(3):
+        for row in range(3):
+            digit = col*3+row+1
+            x,y = 90+col*340,250+row*265
+            d.rectangle((x,y,x+340,y+265),outline='#719bc1',width=3)
+            text(x+28,y+30,str(digit),22,fill='#61788d')
+            cell = str(digit)*result['counts'][digit] or '−'
+            size=72
+            while d.textbbox((0,0),cell,font=font(size))[2] > 300:
+                size-=2
+            text(x+170,y+135,cell,size)
+    text(600,1110,'Числа розрахунку: '+' · '.join(map(str,result['numbers'])),29)
+    out=BytesIO(); im.save(out,'PNG'); return out.getvalue()
+
 def draw_karma(result):
     """Two aligned rows of exact calculation values, following the supplied example."""
     im=Image.new('RGB',(1200,650),'white')

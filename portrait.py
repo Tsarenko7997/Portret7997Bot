@@ -7,6 +7,20 @@ def reduce22(n):
         raise ValueError('Зведення від’ємного числа потребує правила різниці.')
     return (n - 1) % 22 + 1
 
+def calculate_karma(value):
+    """User's karma worksheet: ПП1 corrected to П4; zero differences become 22."""
+    portrait, _ = calculate(value)
+    p1,p2,p3 = (portrait[f'П{i}'] for i in (1,2,3))
+    positive = [portrait['П4'],reduce22(p1+p3)]
+    positive.append(reduce22(positive[0]+positive[1]))
+    positive.append(reduce22(p2+p3))
+    positive.append(reduce22(sum(positive)))
+    negative = [reduce22(abs(p1-p2)),reduce22(abs(p1-p3))]
+    negative.append(reduce22(abs(negative[0]-negative[1])))
+    negative.append(reduce22(abs(p2-p3)))
+    negative.append(reduce22(sum(negative)))
+    return {'positive':positive,'negative':negative}
+
 def calculate(value):
     if not re.fullmatch(r'\d{2}\.\d{2}\.\d{4}', value):
         raise ValueError('Введіть дату у форматі ДД.ММ.РРРР, наприклад 16.09.1998.')

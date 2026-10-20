@@ -111,9 +111,11 @@ SECTIONS = {
     'year':'Прогноз на роки',
     'month':'Прогноз на місяці',
 }
+SECTION_ICONS = {'portrait':'👤','karma':'🔮','matrix':'🔢','money':'💰',
+                 'social':'👫','year':'📅','month':'📆'}
 
 def main_menu():
-    buttons = [{'text':label if key in ('portrait','karma','matrix','social','money') else label+' · Незабаром',
+    buttons = [{'text':SECTION_ICONS[key]+' '+label+('' if key in ('portrait','karma','matrix','social','money') else ' · Незабаром'),
                 'callback_data':'section:'+key} for key,label in SECTIONS.items()]
     return {'inline_keyboard':[
         [buttons[0]], buttons[1:3], buttons[3:5], buttons[5:7],

@@ -53,7 +53,7 @@ class SocialTests(unittest.TestCase):
     def test_menu_exposes_numerical_social_section(self):
         buttons=[b for row in main_menu()['inline_keyboard'] for b in row]
         social=next(b for b in buttons if b.get('callback_data')=='section:social')
-        self.assertEqual(social['text'],'Соціальне призначення')
+        self.assertEqual(social['text'],'👫 Соціальне призначення')
 
 if __name__=='__main__': unittest.main()
 

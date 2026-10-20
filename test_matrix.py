@@ -68,7 +68,7 @@ class MatrixTests(unittest.TestCase):
 
     def test_ready_menu_and_square_render(self):
         buttons=[b for row in main_menu()['inline_keyboard'] for b in row]
-        self.assertEqual(next(b['text'] for b in buttons if b.get('callback_data')=='section:matrix'),'Матриця')
+        self.assertEqual(next(b['text'] for b in buttons if b.get('callback_data')=='section:matrix'),'🔢 Матриця')
         png=draw_matrix('16.09.1998',calculate_matrix('16.09.1998'))
         with Image.open(BytesIO(png)) as im:
             self.assertEqual(im.size,(1200,1200))

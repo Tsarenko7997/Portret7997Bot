@@ -94,7 +94,7 @@ class MoneyFlowTests(unittest.TestCase):
     def test_menu_marks_money_ready(self):
         buttons=[b for row in main_menu()['inline_keyboard'] for b in row]
         self.assertEqual(next(b['text'] for b in buttons if b.get('callback_data')=='section:money'),
-                         'Грошове призначення')
+                         '💰 Грошове призначення')
 
 if __name__=='__main__': unittest.main()
 

@@ -14,6 +14,7 @@ from portrait import calculate, calculate_karma, calculate_social, calculate_mon
 from render import draw_portrait, draw_karma, draw_matrix
 from catalog import POSITIONS, FREE, description, chunks, TELEGRAM_HANDLE, TELEGRAM_URL, INSTAGRAM_URL, CONTACTS
 from karma_catalog import negative_description, positive_description
+from money_catalog import money_description
 from payments import Store, Prices, PaymentError
 
 ROOT=Path(__file__).parent
@@ -208,11 +209,14 @@ def show_money(api,cid,birth,store):
                 reply_markup={'inline_keyboard':[[{'text':'Головне меню','callback_data':'home'}]]})
         return
     result = calculate_money(birth,name)
+    try:
+        reading = money_description(result['arcanum'])
+    except (ValueError,KeyError,OSError,EOFError,lzma.LZMAError):
+        reading = 'Описи грошового призначення тимчасово недоступні. Спробуйте пізніше.\n\n'+CONTACTS
     api.say(cid,'Грошове призначення · '+birth+'\nІм’я: '+result['name']+'\n\n'
             +f"Аркан імені: {result['name_arcanum']}.\nВаш аркан грошового призначення: {result['arcanum']}.\n\n"
-            +'Детальний опис грошового призначення готується.\n\n'
             +'Щоб змінити ім’я, надішліть його тут. Для іншої людини надішліть нову дату та ім’я.\n\n'
-            +CONTACTS,reply_markup={'inline_keyboard':[
+            +reading,reply_markup={'inline_keyboard':[
                 [{'text':'Змінити ім’я','callback_data':'money_name'}],
                 [{'text':'Соціальне призначення','callback_data':'section:social'}],
                 [{'text':'Головне меню','callback_data':'home'}]]})
@@ -703,4 +707,5 @@ def main():
 if __name__ == '__main__':
     try: main()
     except KeyboardInterrupt: print('Бот зупинено.')
+
 

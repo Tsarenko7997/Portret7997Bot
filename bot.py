@@ -52,8 +52,11 @@ def instagram_nickname_link(method,data):
                          'url':INSTAGRAM_URL})
         result += TELEGRAM_HANDLE+suffix
     # Apply after shortening the URL, so all offsets refer to the final text.
-    headings = (r'(?m)^Позиція [^\n]+|'
-                r'(?m:^Позитивні прояви|^Можливі труднощі|^Внутрішні установки та блоки)(?=\. )')
+    headings = (r'(?m)^(?:Позиція |Плюсова карма · |Мінусова карма · |'
+                r'Грошове призначення · |Аркан \d+ |Ваш аркан грошового призначення: )[^\n]+|'
+                r'^(?:Позитивні прояви|Можливі труднощі|Внутрішні установки та блоки|'
+                r'Кармічна тема|Внутрішні блоки|Сильні сторони|Ваш ресурс|Можливі прояви|'
+                r'Що може послаблювати ресурс|Ваш акцент)(?=\. )')
     for match in re.finditer(headings,result):
         entities.append({'type':'bold','offset':len(result[:match.start()].encode('utf-16-le'))//2,
                          'length':len(match.group().encode('utf-16-le'))//2})

@@ -46,5 +46,21 @@ class PositionFormattingTests(unittest.TestCase):
             for entity in rendered.get('entities',[]):
                 self.assertTrue(entity_text(rendered['text'],entity))
 
+    def test_karma_and_money_headings(self):
+        examples=[
+            ('Плюсова карма · Позиція 1',['Ваш ресурс','Можливі прояви','Що може послаблювати ресурс']),
+            ('Мінусова карма · Позиція 1',['Кармічна тема','Можливі труднощі','Внутрішні блоки','Сильні сторони']),
+            ('Грошове призначення · 16.09.1998',['Ваш акцент'])]
+        for title,headings in examples:
+            text=title+'\nДата народження: 16.09.1998\n\nАркан 3 · Назва\n\n'
+            text+='\n\n'.join(heading+'. Текст.' for heading in headings)
+            text+='\n\nInstagram: '+INSTAGRAM_URL
+            result=instagram_nickname_link('sendMessage',{'text':text})
+            bold=[entity_text(result['text'],e) for e in result['entities'] if e['type']=='bold']
+            self.assertEqual(bold,[title,'Аркан 3 · Назва']+headings)
+            link=next(e for e in result['entities'] if e['type']=='text_link')
+            self.assertEqual(entity_text(result['text'],link),TELEGRAM_HANDLE)
+            self.assertEqual(link['url'],INSTAGRAM_URL)
+
 
 if __name__=='__main__': unittest.main()

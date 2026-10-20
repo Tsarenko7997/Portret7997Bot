@@ -1,7 +1,7 @@
 import unittest
 from catalog import POSITIONS, description, position_meaning, chunks, INSTAGRAM_URL, TELEGRAM_HANDLE
 from portrait import calculate
-from bot import instagram_nickname_link
+from bot import instagram_nickname_link, KARMA_INTRO
 
 
 def entity_text(text,entity):
@@ -61,6 +61,16 @@ class PositionFormattingTests(unittest.TestCase):
             link=next(e for e in result['entities'] if e['type']=='text_link')
             self.assertEqual(entity_text(result['text'],link),TELEGRAM_HANDLE)
             self.assertEqual(link['url'],INSTAGRAM_URL)
+
+    def test_karma_intro_caption_headings_links_and_limit(self):
+        text='Карма +/− · 16.09.1998\n\n'+KARMA_INTRO+'\n\nInstagram: '+INSTAGRAM_URL
+        text+='\n\nНатисніть позицію плюсової або мінусової карми нижче, щоб прочитати її опис.'
+        text+='\n\nДля нового розрахунку надішліть іншу дату.'
+        result=instagram_nickname_link('sendPhoto',{'caption':text})
+        bold=[entity_text(result['caption'],e) for e in result['caption_entities'] if e['type']=='bold']
+        self.assertEqual(bold,['Карма','Позитивна карма','Негативна карма'])
+        self.assertLessEqual(len(result['caption'].encode('utf-16-le'))//2,1024)
+        self.assertTrue(any(e['type']=='text_link' for e in result['caption_entities']))
 
 
 if __name__=='__main__': unittest.main()

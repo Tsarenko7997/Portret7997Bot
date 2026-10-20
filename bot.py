@@ -56,7 +56,8 @@ def instagram_nickname_link(method,data):
                 r'Грошове призначення · |Аркан \d+ |Ваш аркан грошового призначення: )[^\n]+|'
                 r'^(?:Позитивні прояви|Можливі труднощі|Внутрішні установки та блоки|'
                 r'Кармічна тема|Внутрішні блоки|Сильні сторони|Ваш ресурс|Можливі прояви|'
-                r'Що може послаблювати ресурс|Ваш акцент)(?=\. )')
+                r'Що може послаблювати ресурс|Ваш акцент)(?=\. )|'
+                r'^(?:Карма|Позитивна карма|Негативна карма)(?=: )')
     for match in re.finditer(headings,result):
         entities.append({'type':'bold','offset':len(result[:match.start()].encode('utf-16-le'))//2,
                          'length':len(match.group().encode('utf-16-le'))//2})
@@ -249,6 +250,15 @@ def show_social(api,cid,birth,store):
                  {'text':'Карма +/−','callback_data':'section:karma'}],
                 [{'text':'Головне меню','callback_data':'home'}]]})
 
+KARMA_INTRO = (
+    'Карма: це те, що Ви принесли із минулого життя й отримали як багаж у цьому.\n\n'
+    'Позитивна карма: Ваші таланти, можливості, легкий шлях для реалізації та подарунки від долі.\n\n'
+    'Негативна карма: нагадує про помилки минулого, уроки, які потрібно здати на відмінно, '
+    'щоб вони не повторювались знову. Життя ніби постійно провокує на мінус, змушуючи робити '
+    'ті самі кроки, що були зроблені неправильно колись. Це негативні програми, які можуть '
+    'обмежувати, якщо їх не пропрацювати.'
+)
+
 def show_karma(api,cid,birth,store):
     if store.membership_until(cid) <= int(time.time()):
         api.say(cid,'Карма +/− доступна під час повного місячного доступу.\n\n'+access_text(store,cid),
@@ -262,7 +272,7 @@ def show_karma(api,cid,birth,store):
     positive_buttons = [{'text':f'Плюс {i} · {value}',
                          'callback_data':f'karma_plus:{birth}:{i}'}
                         for i,value in enumerate(result['positive'],1)]
-    api.call('sendPhoto',{'chat_id':cid,'caption':'Карма +/− · '+birth+'\n'+CONTACTS+'\n\n'+
+    api.call('sendPhoto',{'chat_id':cid,'caption':'Карма +/− · '+birth+'\n\n'+KARMA_INTRO+'\n\n'+CONTACTS+'\n\n'+
         'Натисніть позицію плюсової або мінусової карми нижче, щоб прочитати її опис.\n\n'
         'Для нового розрахунку надішліть іншу дату.',
         'reply_markup':{'inline_keyboard':[positive_buttons[:3],positive_buttons[3:],

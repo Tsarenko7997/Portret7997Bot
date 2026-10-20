@@ -47,7 +47,7 @@ class MoneyFlowTests(unittest.TestCase):
         self.assertIn('Надішліть лише ім’я',self.api.calls[-1][1]['text'])
         handle(self.api,message('Надія'),self.store,self.prices)
         text=self.api.calls[-1][1]['text']
-        self.assertIn('Аркан імені: 3.',text)
+        self.assertNotIn('Аркан імені',text)
         self.assertIn('Ваш аркан грошового призначення: 1.',text)
         handle(self.api,callback('section:social'),self.store,self.prices)
         self.assertIn('Ваш аркан: 21.',self.api.calls[-1][1]['text'])
@@ -95,3 +95,4 @@ class MoneyFlowTests(unittest.TestCase):
                          'Грошове призначення')
 
 if __name__=='__main__': unittest.main()
+

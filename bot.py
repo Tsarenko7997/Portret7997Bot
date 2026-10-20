@@ -214,7 +214,7 @@ def show_money(api,cid,birth,store):
     except (ValueError,KeyError,OSError,EOFError,lzma.LZMAError):
         reading = 'Описи грошового призначення тимчасово недоступні. Спробуйте пізніше.\n\n'+CONTACTS
     api.say(cid,'Грошове призначення · '+birth+'\nІм’я: '+result['name']+'\n\n'
-            +f"Аркан імені: {result['name_arcanum']}.\nВаш аркан грошового призначення: {result['arcanum']}.\n\n"
+            +f"Ваш аркан грошового призначення: {result['arcanum']}.\n\n"
             +'Щоб змінити ім’я, надішліть його тут. Для іншої людини надішліть нову дату та ім’я.\n\n'
             +reading,reply_markup={'inline_keyboard':[
                 [{'text':'Змінити ім’я','callback_data':'money_name'}],

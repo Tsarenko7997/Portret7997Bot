@@ -96,6 +96,7 @@ def draw_portrait(value,p):
         return [tuple((1-t)**3*a[i]+3*(1-t)**2*t*b[i]+
                       3*(1-t)*t*t*c[i]+t**3*e[i] for i in (0,1))
                 for t in [j/32 for j in range(33)]]
+    lotus_offset=width/2-452
     base=(452,1332)
     for tip,left,right,color in [
         ((356,1297),(393,1342),(437,1293),'#f3e4e3'),
@@ -106,6 +107,6 @@ def draw_portrait(value,p):
         ((484,1261),(441,1283),(485,1312),'#f7e7e4'),
         ((452,1248),(416,1298),(488,1298),'#fff5ee')]:
         points=curve(base,left,left,tip)+curve(tip,right,right,base)
-        d.polygon([(round(x*scale),round(y*scale)) for x,y in points],fill=color)
-    path([(320,1343),(570,1343)],fill='#e7e0df',width=1)
+        d.polygon([(round((x+lotus_offset)*scale),round(y*scale)) for x,y in points],fill=color)
+    path([(width/2-125,1343),(width/2+125,1343)],fill='#e7e0df',width=1)
     out=BytesIO(); im.save(out,'PNG'); return out.getvalue()

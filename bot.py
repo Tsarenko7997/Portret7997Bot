@@ -120,6 +120,23 @@ def main_menu():
          {'text':'Написати в Telegram','url':TELEGRAM_URL}],
         [{'text':'Instagram @lakshmi_775','url':INSTAGRAM_URL}]]}
 
+LOCKED_DESCRIPTION = ('🔒 Опис закритий. Повний доступ до описів відкриває автор особисто. '
+                      'Для отримання доступу напишіть @lakshmi_775.')
+
+def has_full_access(store,cid):
+    return store.membership_until(cid) > int(time.time())
+
+def locked_button(section,active):
+    return [] if active else [[{'text':'🔒 Відкрити опис','callback_data':'locked:'+section}]]
+
+def show_description_lock(api,cid,title,birth,store,section):
+    text=title+('\nДата народження: '+birth if birth else '')+'\n\n'+LOCKED_DESCRIPTION
+    text+='\n\n'+access_text(store,cid)
+    api.say(cid,text,reply_markup={'inline_keyboard':[
+        [{'text':'Написати автору','url':TELEGRAM_URL}],
+        [{'text':'Повернутися до розрахунку','callback_data':'section:'+section}],
+        [{'text':'Головне меню','callback_data':'home'}]]})
+
 def show_home(api,cid,store):
     store.set_section(cid,'portrait')
     birth = store.current_birth(cid)
@@ -139,50 +156,14 @@ def show_section(api,cid,key,store,prices):
         text = ('Портрет\n\nНадішліть дату народження у форматі ДД.ММ.РРРР. '
                 'Наприклад: 16.09.1998.\nВи отримаєте схему та описи позицій. '
                 '21 і 30 відкриті для всіх; усі 33 доступні під час повного доступу.')
-    elif key == 'karma':
-        if store.membership_until(cid) > int(time.time()):
-            store.set_section(cid,'karma')
-            if birth:
-                show_karma(api,cid,birth,store); return
-            text = ('Карма +/−\n\nНадішліть дату народження у форматі ДД.ММ.РРРР. '
-                    'Ви отримаєте п’ять позицій плюсової та п’ять позицій мінусової карми. '
-                    'Для плюсової та мінусової карми доступні описи всіх 22 арканів.')
-        else:
-            store.set_section(cid,'portrait')
-            text = ('Карма +/−\n\nРозрахунок карми доступний під час повного місячного доступу.\n\n'
-                    +access_text(store,cid)+'\n\nЗвернутися до автора: '+SUPPORT+'.')
-    elif key == 'matrix':
-        if store.membership_until(cid) > int(time.time()):
-            store.set_section(cid,'matrix')
-            if birth:
-                show_matrix(api,cid,birth,store); return
-            text = ('Матриця\n\nНадішліть дату народження у форматі ДД.ММ.РРРР. '
-                    'Ви отримаєте таблицю з цифрами Вашої дати та розрахунку.')
-        else:
-            store.set_section(cid,'portrait')
-            text = ('Матриця доступна під час повного місячного доступу.\n\n'+access_text(store,cid))
-    elif key == 'social':
-        if store.membership_until(cid) > int(time.time()):
-            store.set_section(cid,'social')
-            if birth:
-                show_social(api,cid,birth,store); return
-            text = ('Соціальне призначення\n\nНадішліть дату народження у форматі ДД.ММ.РРРР. '
-                    'Ви отримаєте свій аркан соціального призначення. Детальні описи готуються.')
-        else:
-            store.set_section(cid,'portrait')
-            text = ('Соціальне призначення доступне під час повного місячного доступу.\n\n'
-                    +access_text(store,cid))
-    elif key == 'money':
-        if store.membership_until(cid) > int(time.time()):
-            store.set_section(cid,'money')
-            if birth:
-                show_money(api,cid,birth,store); return
-            text = ('Грошове призначення\n\nСпочатку надішліть дату народження у форматі ДД.ММ.РРРР. '
-                    'Після цього введіть своє ім’я українською, як у документах.')
-        else:
-            store.set_section(cid,'portrait')
-            text = ('Грошове призначення доступне під час повного місячного доступу.\n\n'
-                    +access_text(store,cid))
+    elif key in ('karma','matrix','social','money'):
+        store.set_section(cid,key)
+        if birth:
+            {'karma':show_karma,'matrix':show_matrix,'social':show_social,'money':show_money}[key](api,cid,birth,store)
+            return
+        text = SECTIONS[key]+'\n\nНадішліть дату народження у форматі ДД.ММ.РРРР. '
+        text += 'Розрахунок доступний усім. Описи відкриваються після особистого додавання автором.'
+        if key == 'money': text += '\nПісля дати введіть ім’я українською, як у документах.'
     else:
         text = SECTIONS[key]+'\n\nЦей розділ готується. Розрахунок ще недоступний. '
         text += 'Зараз Ви можете скористатися розділом «Портрет».'
@@ -191,28 +172,18 @@ def show_section(api,cid,key,store,prices):
         [{'text':'Головне меню','callback_data':'home'}]]})
 
 def show_matrix(api,cid,birth,store):
-    if store.membership_until(cid) <= int(time.time()):
-        api.say(cid,'Матриця доступна під час повного місячного доступу.\n\n'+access_text(store,cid),
-                reply_markup={'inline_keyboard':[
-                    [{'text':'Мій доступ','callback_data':'access'}],
-                    [{'text':'Головне меню','callback_data':'home'}]]})
-        return
     result = calculate_matrix(birth)
+    active = has_full_access(store,cid)
     caption = ('Матриця · '+birth+'\n\n'
-               +'Детальні описи матриці готуються. Для нового розрахунку надішліть іншу дату.\n\n'
+               +('Детальні описи матриці готуються.' if active else LOCKED_DESCRIPTION)
+               +'\nДля нового розрахунку надішліть іншу дату.\n\n'
                +CONTACTS)
-    api.call('sendPhoto',{'chat_id':cid,'caption':caption,'reply_markup':{'inline_keyboard':[
+    api.call('sendPhoto',{'chat_id':cid,'caption':caption,'reply_markup':{'inline_keyboard':locked_button('matrix',active)+[
         [{'text':'Портрет','callback_data':'section:portrait'},
          {'text':'Карма +/−','callback_data':'section:karma'}],
         [{'text':'Головне меню','callback_data':'home'}]]}},('photo',draw_matrix(birth,result),'matrix.png'))
 
 def show_money(api,cid,birth,store):
-    if store.membership_until(cid) <= int(time.time()):
-        api.say(cid,'Грошове призначення доступне під час повного місячного доступу.\n\n'
-                +access_text(store,cid),reply_markup={'inline_keyboard':[
-                    [{'text':'Мій доступ','callback_data':'access'}],
-                    [{'text':'Головне меню','callback_data':'home'}]]})
-        return
     name = store.money_name(cid)
     if not name:
         api.say(cid,'Грошове призначення · '+birth+'\n\n'
@@ -221,31 +192,30 @@ def show_money(api,cid,birth,store):
                 reply_markup={'inline_keyboard':[[{'text':'Головне меню','callback_data':'home'}]]})
         return
     result = calculate_money(birth,name)
-    try:
-        reading = money_description(result['arcanum'])
-    except (ValueError,KeyError,OSError,EOFError,lzma.LZMAError):
-        reading = 'Описи грошового призначення тимчасово недоступні. Спробуйте пізніше.\n\n'+CONTACTS
+    active = has_full_access(store,cid)
+    if active:
+        try:
+            reading = money_description(result['arcanum'])
+        except (ValueError,KeyError,OSError,EOFError,lzma.LZMAError):
+            reading = 'Описи грошового призначення тимчасово недоступні. Спробуйте пізніше.\n\n'+CONTACTS
+    else:
+        reading = LOCKED_DESCRIPTION+'\n\n'+CONTACTS
     api.say(cid,'Грошове призначення · '+birth+'\nІм’я: '+result['name']+'\n\n'
             +f"Ваш аркан грошового призначення: {result['arcanum']}.\n\n"
             +'Щоб змінити ім’я, надішліть його тут. Для іншої людини надішліть нову дату та ім’я.\n\n'
-            +reading,reply_markup={'inline_keyboard':[
+            +reading,reply_markup={'inline_keyboard':locked_button('money',active)+[
                 [{'text':'Змінити ім’я','callback_data':'money_name'}],
                 [{'text':'Соціальне призначення','callback_data':'section:social'}],
                 [{'text':'Головне меню','callback_data':'home'}]]})
 
 def show_social(api,cid,birth,store):
-    if store.membership_until(cid) <= int(time.time()):
-        api.say(cid,'Соціальне призначення доступне під час повного місячного доступу.\n\n'
-                +access_text(store,cid),reply_markup={'inline_keyboard':[
-                    [{'text':'Мій доступ','callback_data':'access'}],
-                    [{'text':'Головне меню','callback_data':'home'}]]})
-        return
     arcanum = calculate_social(birth)
+    active = has_full_access(store,cid)
     api.say(cid,'Соціальне призначення · '+birth+'\n\n'
             +f'Ваш аркан: {arcanum}.\n\n'
-            +'Детальний опис соціального призначення готується.\n\n'
+            +('Детальний опис соціального призначення готується.' if active else LOCKED_DESCRIPTION)+'\n\n'
             +'Для нового розрахунку надішліть іншу дату.\n\n'+CONTACTS,
-            reply_markup={'inline_keyboard':[
+            reply_markup={'inline_keyboard':locked_button('social',active)+[
                 [{'text':'Портрет','callback_data':'section:portrait'},
                  {'text':'Карма +/−','callback_data':'section:karma'}],
                 [{'text':'Головне меню','callback_data':'home'}]]})
@@ -260,19 +230,16 @@ KARMA_INTRO = (
 )
 
 def show_karma(api,cid,birth,store):
-    if store.membership_until(cid) <= int(time.time()):
-        api.say(cid,'Карма +/− доступна під час повного місячного доступу.\n\n'+access_text(store,cid),
-                reply_markup={'inline_keyboard':[[{'text':'Мій доступ','callback_data':'access'}],
-                                                [{'text':'Головне меню','callback_data':'home'}]]})
-        return
     result = calculate_karma(birth)
-    buttons = [{'text':f'Мінус {i} · {value}',
+    active = has_full_access(store,cid)
+    lock = '' if active else '🔒 '
+    buttons = [{'text':lock+f'Мінус {i} · {value}',
                 'callback_data':f'karma_minus:{birth}:{i}'}
                for i,value in enumerate(result['negative'],1)]
-    positive_buttons = [{'text':f'Плюс {i} · {value}',
+    positive_buttons = [{'text':lock+f'Плюс {i} · {value}',
                          'callback_data':f'karma_plus:{birth}:{i}'}
                         for i,value in enumerate(result['positive'],1)]
-    api.call('sendPhoto',{'chat_id':cid,'caption':'Карма +/− · '+birth+'\n\n'+KARMA_INTRO+'\n\n'+CONTACTS+'\n\n'+
+    api.call('sendPhoto',{'chat_id':cid,'caption':'Карма +/− · '+birth+'\n\n'+KARMA_INTRO+'\n\n'+('' if active else LOCKED_DESCRIPTION+'\n\n')+CONTACTS+'\n\n'+
         'Натисніть позицію плюсової або мінусової карми нижче, щоб прочитати її опис.\n\n'
         'Для нового розрахунку надішліть іншу дату.',
         'reply_markup':{'inline_keyboard':[positive_buttons[:3],positive_buttons[3:],
@@ -288,14 +255,14 @@ def show_karma_plus(api,cid,birth,position,store):
     show_karma_interpretation(api,cid,birth,position,store,positive=True)
 
 def show_karma_interpretation(api,cid,birth,position,store,positive=False):
-    # A forged or old callback must never bypass the current membership window.
-    if store.membership_until(cid) <= int(time.time()):
-        show_karma(api,cid,birth,store)
-        return
     if not 1 <= position <= 5:
         return
     store.set_section(cid,'karma')
     arcanum = calculate_karma(birth)['positive' if positive else 'negative'][position-1]
+    if not has_full_access(store,cid):
+        label = 'Плюсова карма' if positive else 'Мінусова карма'
+        show_description_lock(api,cid,f'{label} · Позиція {position}\nВаш аркан: {arcanum}.',birth,store,'karma')
+        return
     try:
         describe = positive_description if positive else negative_description
         text = describe(position,arcanum,birth)
@@ -351,19 +318,20 @@ def access_text(store,cid):
     until = store.membership_until(cid)
     if until > int(time.time()):
         end = datetime.fromtimestamp(until,ZoneInfo('Europe/Kyiv')).strftime('%d.%m.%Y о %H:%M')
-        return ('Усі 33 позиції відкриті для необмеженої кількості дат народження.\n'
+        return ('Усі 33 позиції портрету та готові описи інших розділів відкриті для необмеженої кількості дат народження.\n'
                 'Повний доступ діє до '+end+' за київським часом.\n\n'
                 'Надішліть будь-яку дату у форматі ДД.ММ.РРРР.')
     if store.had_membership(cid):
         return ('Ваш місяць повного доступу завершився.\n\n'
                 'Повний доступ до всіх позицій: 100 грн на місяць.\n'
-                'Після продовження Вам будуть доступні всі 33 позиції та необмежена кількість дат.\n\n'
+                'Після продовження Вам будуть доступні всі 33 позиції, готові описи інших розділів та необмежена кількість дат.\n\n'
                 'Щоб продовжити користування, напишіть '+SUPPORT+' у приватні повідомлення. '
                 'Автор продовжить Ваш доступ вручну.\n'
                 f'Ваш Telegram ID: {cid}\n\n'
                 'Позиції 21 і 30 залишаються безкоштовними.')
-    return ('Позиції 21 і 30 безкоштовні для всіх. Персональне запрошення автора відкриває '
-            'всі 33 позиції для необмеженої кількості дат на один місяць від активації.\n\n'
+    return ('Позиції 21 і 30 портрету безкоштовні для всіх. В інших розділах доступні розрахунки, '
+            'а описи закриті. Персональне запрошення автора відкриває всі 33 позиції та готові описи '
+            'інших розділів для необмеженої кількості дат на один місяць від активації.\n\n'
             'Надішліть дату народження у форматі ДД.ММ.РРРР.')
 
 def show_access(api,cid,store):
@@ -562,11 +530,15 @@ def handle(api, update, store, prices):
         if action == 'section':
             if len(args) == 2: show_section(api,cid,args[1],store,prices)
             return
+        if action == 'locked':
+            if len(args) == 2 and args[1] in ('money','social','matrix'):
+                if has_full_access(store,cid): show_section(api,cid,args[1],store,prices)
+                else: show_description_lock(api,cid,SECTIONS[args[1]],store.current_birth(cid),store,args[1])
+            return
         if action == 'access': show_access(api,cid,store); return
         if action == 'purchases': show_purchases(api,cid,store); return
         if action == 'money_name':
-            if store.membership_until(cid) > int(time.time()):
-                store.forget_money_name(cid)
+            store.forget_money_name(cid)
             show_section(api,cid,'money',store,prices); return
         if len(args) < 2: return
         birth = args[1]
@@ -648,8 +620,6 @@ def handle(api, update, store, prices):
     try: calculated,_ = calculate(text)
     except ValueError as e:
         if store.section(cid) == 'money' and store.current_birth(cid) and not any(c.isdigit() for c in text):
-            if store.membership_until(cid) <= int(time.time()):
-                show_money(api,cid,store.current_birth(cid),store); return
             try: store.set_money_name(cid,text)
             except ValueError as error: api.say(cid,str(error)); return
             show_money(api,cid,store.current_birth(cid),store); return

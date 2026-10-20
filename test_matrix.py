@@ -57,15 +57,15 @@ class MatrixTests(unittest.TestCase):
         path=self.store.path; self.store.close(); self.store=Store(path)
         self.assertEqual(self.store.section(7),'matrix')
         self.assertEqual(self.store.section(8),'portrait')
-    def test_access_checked_on_button_and_new_date(self):
+    def test_public_matrix_numbers_remain_available_after_expiry(self):
         handle(self.api,message('/matrix'),self.store,self.prices)
-        self.assertIn('місячного доступу',self.api.calls[-1][1]['text'])
-        self.assertFalse(any(c[0]=='sendPhoto' for c in self.api.calls))
+        self.assertIn('Розрахунок доступний усім',self.api.calls[-1][1]['text'])
         self.activate(); handle(self.api,message('/matrix'),self.store,self.prices)
         with patch('payments.time.time',return_value=self.store.membership_until(7)):
             handle(self.api,message('16.09.1998'),self.store,self.prices)
-            self.assertIn('100 грн',self.api.calls[-1][1]['text'])
-            self.assertFalse(any(c[0]=='sendPhoto' for c in self.api.calls))
+            self.assertEqual(self.api.calls[-1][0],'sendPhoto')
+            self.assertIn('🔒 Опис закритий',self.api.calls[-1][1]['caption'])
+
     def test_ready_menu_and_square_render(self):
         buttons=[b for row in main_menu()['inline_keyboard'] for b in row]
         self.assertEqual(next(b['text'] for b in buttons if b.get('callback_data')=='section:matrix'),'Матриця')
@@ -76,3 +76,4 @@ class MatrixTests(unittest.TestCase):
 
 
 if __name__=='__main__': unittest.main()
+

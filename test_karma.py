@@ -50,16 +50,18 @@ class KarmaFlowTests(unittest.TestCase):
             self.assertEqual(method,'sendPhoto')
             self.assertIn('Карма +/− · '+birth,data['caption'])
             self.assertEqual(file,('photo',draw_karma(calculate_karma(birth)),'karma.png'))
-    def test_public_user_cannot_choose_full_karma(self):
+    def test_public_user_can_choose_numeric_karma(self):
         handle(self.api,callback('section:karma'),self.store,self.prices)
-        self.assertIn('місячного доступу',self.api.calls[-1][1]['text'])
-        self.assertEqual(self.store.section(7),'portrait')
+        self.assertIn('Розрахунок доступний усім',self.api.calls[-1][1]['text'])
+        self.assertEqual(self.store.section(7),'karma')
+
     def test_expiry_between_section_selection_and_date(self):
         self.activate(); handle(self.api,message('/karma'),self.store,self.prices)
         with patch('payments.time.time',return_value=self.store.membership_until(7)):
             handle(self.api,message('16.09.1998'),self.store,self.prices)
-            text=self.api.calls[-1][1]['text']
-            self.assertIn('100 грн',text); self.assertNotIn('ПП5:',text)
+            self.assertEqual(self.api.calls[-1][0],'sendPhoto')
+            self.assertIn('🔒 Опис закритий',self.api.calls[-1][1]['caption'])
+
     def test_mode_is_account_scoped_and_survives_restart(self):
         self.activate(); self.store.set_section(7,'karma')
         self.assertEqual(self.store.section(8),'portrait')
@@ -87,7 +89,7 @@ class KarmaFlowTests(unittest.TestCase):
         with patch('payments.time.time',return_value=self.store.membership_until(7)):
             handle(self.api,callback('karma_png:16.09.1998'),self.store,self.prices)
         self.assertFalse(any(c[0]=='sendDocument' for c in self.api.calls))
-        self.assertIn('100 грн',self.api.calls[-1][1]['text'])
+        self.assertIn('🔒 Опис закритий',self.api.calls[-1][1]['caption'])
     def test_one_date_is_shared_between_portrait_and_karma(self):
         self.activate()
         handle(self.api,message('16.09.1998'),self.store,self.prices)
@@ -115,11 +117,12 @@ class KarmaFlowTests(unittest.TestCase):
         self.assertEqual(self.store.current_birth(7),'16.09.1998')
         handle(self.api,message('/forgetdate'),self.store,self.prices)
         self.assertIsNone(self.store.current_birth(7))
-    def test_cached_date_never_bypasses_karma_access_check(self):
+    def test_cached_date_shows_numbers_with_locked_descriptions(self):
         self.store.set_current_birth(7,'16.09.1998')
         handle(self.api,callback('section:karma'),self.store,self.prices)
-        self.assertFalse(any(c[0]=='sendPhoto' for c in self.api.calls))
-        self.assertIn('місячного доступу',self.api.calls[-1][1]['text'])
+        self.assertEqual(self.api.calls[-1][0],'sendPhoto')
+        self.assertIn('🔒 Опис закритий',self.api.calls[-1][1]['caption'])
+
     def test_karma_buttons_have_no_png_download(self):
         self.activate(); self.store.set_current_birth(7,'16.09.1998')
         handle(self.api,message('/karma'),self.store,self.prices)
@@ -127,3 +130,4 @@ class KarmaFlowTests(unittest.TestCase):
         self.assertNotIn('Завантажити PNG',str(data))
 
 if __name__=='__main__': unittest.main()
+

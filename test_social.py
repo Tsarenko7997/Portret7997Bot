@@ -33,14 +33,15 @@ class SocialTests(unittest.TestCase):
         self.assertEqual(self.store.section(7),'social')
         handle(self.api,callback('section:karma'),self.store,self.prices)
         self.assertIn('28.11.1999',self.api.calls[-1][1]['caption'])
-    def test_public_and_expired_users_cannot_calculate_social(self):
+    def test_public_and_expired_users_get_only_numeric_social(self):
         handle(self.api,message('/social'),self.store,self.prices)
-        self.assertIn('місячного доступу',self.api.calls[-1][1]['text'])
+        self.assertIn('Розрахунок доступний усім',self.api.calls[-1][1]['text'])
         self.activate(); handle(self.api,message('/social'),self.store,self.prices)
         with patch('payments.time.time',return_value=self.store.membership_until(7)):
             handle(self.api,message('16.09.1998'),self.store,self.prices)
-            self.assertIn('100 грн',self.api.calls[-1][1]['text'])
-            self.assertNotIn('Ваш аркан:',self.api.calls[-1][1]['text'])
+            self.assertIn('🔒 Опис закритий',self.api.calls[-1][1]['text'])
+            self.assertIn('Ваш аркан: 21.',self.api.calls[-1][1]['text'])
+
     def test_section_persists_and_is_private_to_account(self):
         self.store.set_section(7,'social'); path=self.store.path
         self.store.close(); self.store=Store(path)
@@ -55,3 +56,4 @@ class SocialTests(unittest.TestCase):
         self.assertEqual(social['text'],'Соціальне призначення')
 
 if __name__=='__main__': unittest.main()
+

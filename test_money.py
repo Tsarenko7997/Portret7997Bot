@@ -77,22 +77,25 @@ class MoneyFlowTests(unittest.TestCase):
         self.assertEqual(self.store.money_name(7),'Ірина')
         handle(self.api,message('/forgetdate'),self.store,self.prices)
         self.assertIsNone(self.store.current_birth(7)); self.assertIsNone(self.store.money_name(7))
-    def test_public_expired_and_other_accounts_cannot_compute_or_store_name(self):
+    def test_public_and_expired_users_can_calculate_without_private_description(self):
         handle(self.api,callback('section:money'),self.store,self.prices)
-        self.assertIn('місячного доступу',self.api.calls[-1][1]['text'])
+        self.assertIn('Розрахунок доступний усім',self.api.calls[-1][1]['text'])
         self.activate(); self.store.set_current_birth(7,'16.09.1998')
         handle(self.api,callback('section:money'),self.store,self.prices)
-        with patch('payments.time.time',return_value=self.store.membership_until(7)):
-            handle(self.api,message('Надія'),self.store,self.prices)
-            self.assertIsNone(self.store.money_name(7))
-            self.assertIn('100 грн',self.api.calls[-1][1]['text'])
-        self.store.set_current_birth(8,'16.09.1998')
-        handle(self.api,callback('section:money',user=8),self.store,self.prices)
-        self.assertNotIn('Ваш аркан грошового',self.api.calls[-1][1]['text'])
+        with patch('bot.money_description') as private:
+            with patch('payments.time.time',return_value=self.store.membership_until(7)):
+                handle(self.api,message('Надія'),self.store,self.prices)
+                self.assertEqual(self.store.money_name(7),'Надія')
+                self.assertIn('Ваш аркан грошового призначення: 1.',self.api.calls[-1][1]['text'])
+                self.assertIn('🔒 Опис закритий',self.api.calls[-1][1]['text'])
+            private.assert_not_called()
+        self.assertIsNone(self.store.money_name(8))
+
     def test_menu_marks_money_ready(self):
         buttons=[b for row in main_menu()['inline_keyboard'] for b in row]
         self.assertEqual(next(b['text'] for b in buttons if b.get('callback_data')=='section:money'),
                          'Грошове призначення')
 
 if __name__=='__main__': unittest.main()
+
 

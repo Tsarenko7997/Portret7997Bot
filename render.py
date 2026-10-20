@@ -40,34 +40,72 @@ def draw_karma(result):
     out=BytesIO(); im.save(out,'PNG'); return out.getvalue()
 
 def draw_portrait(value,p):
-    im=Image.new('RGB',(2000,2000),'#fcfbf9'); d=ImageDraw.Draw(im)
+    """Reference layout: a tall sheet, narrow blue frames and two open triangles.
+
+    Coordinates use the reference's 707 px sheet width. Draw at double size
+    so Telegram can display both the overview and a sharp enlarged portrait.
+    """
+    from PIL import ImageFilter
+    scale=2
+    width,height=707,1400
+    im=Image.new('RGB',(width*scale,height*scale),'#fdfbf8')
+    # Quiet cream and lavender washes leave the calculation itself high contrast.
+    wash=Image.new('RGB',im.size,'#fdfbf8'); wd=ImageDraw.Draw(wash)
+    wd.ellipse((-180,1600,1150,2980),fill='#f3eef4')
+    wd.ellipse((400,-400,1700,1100),fill='#ffffff')
+    im=wash.filter(ImageFilter.GaussianBlur(160))
+    d=ImageDraw.Draw(im)
     fontpath=str(ROOT/'assets'/'DejaVuSans.ttf')
-    font=lambda size: ImageFont.truetype(fontpath,size)
-    def text(x,y,t,size=28,fill='#202934'):
-        d.text((x,y),t,font=font(size),fill=fill,anchor='mm')
-    text(1000,47,'@lakshmi_775',25)
-    text(1000,91,'Портрет 33 позиції',35)
-    text(1000,132,value,28)
+    def text(x,y,t,size=26,fill='#111111'):
+        d.text((round(x*scale),round(y*scale)),t,
+               font=ImageFont.truetype(fontpath,round(size*scale)),
+               fill=fill,anchor='mm')
+    def path(points,fill='#6c9fc3',width=1.5):
+        d.line([(round(x*scale),round(y*scale)) for x,y in points],
+               fill=fill,width=round(width*scale),joint='curve')
+    text(353.5,34,'@lakshmi_775',12,fill='#69717a')
+    text(353.5,61,value,14,fill='#4e5660')
     nodes={
-      'П11':(350,245),'П19':(1050,245),'П20':(1350,245),'П21':(1650,245),
-      'П9':(240,405),'П10':(460,405),'П15':(750,405),'П16':(1050,405),'П17':(1350,405),'П18':(1650,405),
-      'П13':(400,565),'П14':(1400,565),
-      'П1':(650,725),'П2':(900,725),'П3':(1150,725),
-      'П4':(775,885),'П5':(1025,885),'П6':(900,1045),
-      'П12':(350,885),'П7':(1400,885),'П30':(500,1085),'П8':(900,1205),
-      'A':(900,1365),'B':(775,1525),'C':(1025,1525),
-      'D':(650,1685),'E':(900,1685),'F':(1150,1685),
-      'G1':(1450,1455),'G2':(1660,1635),'H':(900,1845),'Кп':(1300,1845),'J':(1550,1845)}
-    line='#719bc1'
-    # Only the connections visible in the supplied reference are drawn.
-    d.line([nodes['П9'],nodes['П10']],fill=line,width=3)
-    d.line([(400,635),(790,1115),(1010,1115),(1400,635)],fill=line,width=3)
-    d.line([nodes['П8'],(1400,1205),nodes['П7']],fill=line,width=3)
-    d.line([(470,1755),(790,1285),(1010,1285),(1330,1755)],fill=line,width=3)
-    d.line([(1515,1630),(1605,1470)],fill=line,width=3)
+        'П11':(157,157),'П19':(389,157),'П20':(493,157),'П21':(585,157),
+        'П9':(103,245),'П10':(212,245),'П15':(339,245),
+        'П16':(432,245),'П17':(524,245),'П18':(615,245),
+        'П13':(88,348),'П14':(405,348),
+        'П1':(162,429),'П2':(247,429),'П3':(329,429),
+        'П4':(209,530),'П5':(289,530),'П6':(248,620),
+        'П12':(96,556),'П7':(408,543),'П30':(149,652),'П8':(249,722),
+        'A':(249,824),'B':(199,914),'C':(299,914),
+        'D':(159,1010),'E':(248,1010),'F':(339,1010),
+        'G1':(405,879),'G2':(477,967),
+        'H':(246,1122),'Кп':(339,1175),'J':(429,1175)
+    }
+    # Connections terminate at frames, exactly as on the supplied sheet.
+    path([(133,239),(182,239)])
+    path([(88,387),(218,671),(285,671),(402,387)])
+    path([(279,724),(411,724),(411,582)])
+    path([(84,1054),(203,775),(290,775),(418,1049)])
+    path([(412,968),(484,862)])
     for key,(x,y) in nodes.items():
-        d.rectangle((x-70,y-70,x+70,y+70),fill='white',outline=line,width=3)
-        result=f"{p['П15а']} / {p['П15б']}" if key=='П15' else str(p[key])
-        text(x,y-14,result,34 if key=='П15' else 48)
-        text(x,y+43,key,22)
+        box=(round((x-30)*scale),round((y-39)*scale),
+             round((x+30)*scale),round((y+39)*scale))
+        d.rectangle(box,fill='#ffffff',outline='#6c9fc3',width=3)
+        result=f"{p['П15а']}\\{p['П15б']}" if key=='П15' else str(p[key])
+        text(x,y-8,result,17 if key=='П15' else 26)
+        text(x,y+20,key,11)
+    # Small, pale lotus ornament sits below all 33 positions.
+    def curve(a,b,c,e):
+        return [tuple((1-t)**3*a[i]+3*(1-t)**2*t*b[i]+
+                      3*(1-t)*t*t*c[i]+t**3*e[i] for i in (0,1))
+                for t in [j/32 for j in range(33)]]
+    base=(452,1332)
+    for tip,left,right,color in [
+        ((356,1297),(393,1342),(437,1293),'#f3e4e3'),
+        ((548,1297),(467,1293),(511,1342),'#f3e4e3'),
+        ((390,1275),(404,1326),(449,1282),'#f8eae7'),
+        ((514,1275),(455,1282),(500,1326),'#f8eae7'),
+        ((420,1261),(419,1312),(463,1283),'#f7e7e4'),
+        ((484,1261),(441,1283),(485,1312),'#f7e7e4'),
+        ((452,1248),(416,1298),(488,1298),'#fff5ee')]:
+        points=curve(base,left,left,tip)+curve(tip,right,right,base)
+        d.polygon([(round(x*scale),round(y*scale)) for x,y in points],fill=color)
+    path([(320,1343),(570,1343)],fill='#e7e0df',width=1)
     out=BytesIO(); im.save(out,'PNG'); return out.getvalue()

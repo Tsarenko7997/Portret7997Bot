@@ -1,5 +1,6 @@
 """Telegram portrait bot with date-scoped paid interpretations."""
 import json
+import re
 import lzma
 import os
 import secrets
@@ -12,7 +13,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 from portrait import calculate, calculate_karma, calculate_social, calculate_money, calculate_matrix
 from render import draw_portrait, draw_karma, draw_matrix
-from catalog import POSITIONS, FREE, description, chunks, TELEGRAM_HANDLE, TELEGRAM_URL, INSTAGRAM_URL, CONTACTS
+from catalog import POSITIONS, FREE, description, chunks, position_meaning, TELEGRAM_HANDLE, TELEGRAM_URL, INSTAGRAM_URL, CONTACTS
 from karma_catalog import negative_description, positive_description
 from money_catalog import money_description
 from payments import Store, Prices, PaymentError
@@ -37,8 +38,6 @@ def instagram_nickname_link(method,data):
     if method not in ('sendMessage','sendPhoto','sendDocument'):
         return data
     text = data.get(field,'')
-    if INSTAGRAM_URL not in text:
-        return data
     entity_key = 'entities' if field == 'text' else 'caption_entities'
     # These plain-text messages have no pre-existing formatting entities.
     if data.get(entity_key) or data.get('parse_mode'):
@@ -52,6 +51,15 @@ def instagram_nickname_link(method,data):
                          'length':len(TELEGRAM_HANDLE.encode('utf-16-le'))//2,
                          'url':INSTAGRAM_URL})
         result += TELEGRAM_HANDLE+suffix
+    # Apply after shortening the URL, so all offsets refer to the final text.
+    headings = (r'(?m)^Позиція [^\n]+|'
+                r'(?m:^Позитивні прояви|^Можливі труднощі|^Внутрішні установки та блоки)(?=\. )')
+    for match in re.finditer(headings,result):
+        entities.append({'type':'bold','offset':len(result[:match.start()].encode('utf-16-le'))//2,
+                         'length':len(match.group().encode('utf-16-le'))//2})
+    if not entities:
+        return data
+    entities.sort(key=lambda entity:entity['offset'])
     updated = {**data,field:result,entity_key:entities}
     if method == 'sendMessage':
         updated['link_preview_options'] = {'is_disabled':True}
@@ -363,9 +371,7 @@ def show_menu(api, cid, birth, store, prices):
     meanings = []
     for number in range(1,34):
         position = POSITIONS[number]
-        meaning = position['meaning'].strip().rstrip('.')
-        meaning = meaning[:1].upper()+meaning[1:]
-        meanings.append(f"{number}. {position['key']} · {meaning}.")
+        meanings.append(f"{number}. {position['key']} · {position_meaning(position)}")
     overview = 'Ваші позиції · '+birth+'\n\nЩо означає кожна позиція\n\n'+'\n\n'.join(meanings)
     overview += '\n\n'+(
         '21 і 30 відкриваються безкоштовно. Натисніть номер, щоб переглянути опис.\n'
@@ -707,5 +713,6 @@ def main():
 if __name__ == '__main__':
     try: main()
     except KeyboardInterrupt: print('Бот зупинено.')
+
 
 

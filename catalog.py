@@ -37,9 +37,13 @@ def arcana_for(number, calculated):
     key = POSITIONS[number]['key']
     return [calculated['П15а'], calculated['П15б']] if key == 'П15' else [calculated[key]]
 
+def position_meaning(position):
+    meaning = position['meaning'].strip().rstrip('.')
+    return meaning[:1].upper()+meaning[1:]+'.'
+
 def description(number, birth_date, calculated):
     p = POSITIONS[number]
-    parts = [f"Позиція {number} ({p['key']}) · {p['title']}\nДата народження: {birth_date}"]
+    parts = [f"Позиція {number} ({p['key']}) · {position_meaning(p)}\nДата народження: {birth_date}"]
     values = arcana_for(number, calculated)
     for i, value in enumerate(values):
         a = p['arcana'][str(value)]
@@ -62,3 +66,4 @@ def chunks(text, limit=3900):
             else: chunk = candidate
         chunk += '\n\n'
     if chunk.strip(): yield chunk.rstrip()
+

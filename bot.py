@@ -1,6 +1,7 @@
 """Telegram portrait bot with date-scoped paid interpretations."""
 import json
 import re
+from html import escape
 import lzma
 import os
 import secrets
@@ -116,6 +117,7 @@ def main_menu():
                 'callback_data':'section:'+key} for key,label in SECTIONS.items()]
     return {'inline_keyboard':[
         [buttons[0]], buttons[1:3], buttons[3:5], buttons[5:7],
+        [{'text':'ℹ️ Інфо','callback_data':'info'}],
         [{'text':'Мій доступ','callback_data':'access'},
          {'text':'Написати в Telegram','url':TELEGRAM_URL}],
         [{'text':'Instagram @lakshmi_775','url':INSTAGRAM_URL}]]}
@@ -136,6 +138,39 @@ def show_description_lock(api,cid,title,birth,store,section):
         [{'text':'Написати автору','url':TELEGRAM_URL}],
         [{'text':'Повернутися до розрахунку','callback_data':'section:'+section}],
         [{'text':'Головне меню','callback_data':'home'}]]})
+
+WELCOME = (
+    '✨ <b>Вітаю у нумерологічному просторі Надії Царенко!</b>\n\n'
+    'Я — <b>Надія</b>, таронумеролог і таролог. Тут я зібрала розрахунки та пояснення, '
+    'які допоможуть Вам дослідити себе через символіку чисел і 22 арканів Таро.\n\n'
+    '<b>Пізнайте себе. Розкрийте свій потенціал та дозвольте собі більше 💜</b>\n\n'
+    '🔮 <b>Що Ви можете розрахувати в боті?</b>\n\n'
+    '• <b>Особистий портрет — 33 позиції:</b> характер, таланти, внутрішні ресурси та життєві уроки.\n'
+    '• <b>Позитивну й негативну карму:</b> можливості та повторювані сценарії в межах нумерологічної методики.\n'
+    '• <b>Матрицю:</b> поєднання чисел Вашої дати народження. Тлумачення готуються.\n'
+    '• <b>Соціальне призначення:</b> аркан реалізації та взаємодії з іншими. Тлумачення готуються.\n'
+    '• <b>Грошове призначення:</b> символічні підказки для роздумів про свої здібності й реалізацію.\n'
+    '• <b>Прогноз на рік (готується):</b> основні теми, можливості та уроки року в нумерологічному трактуванні.\n'
+    '• <b>Прогноз на місяць (готується):</b> теми місяця й підказки, на що звернути увагу.\n\n'
+    '🔓 <b>Що доступно безкоштовно?</b>\n\n'
+    'Розрахунки та перегляд отриманих чисел і арканів у готових розділах. '
+    '<b>Описи 21 і 30 позицій особистого портрета</b> також відкриті для знайомства.\n\n'
+    '🔐 <b>Що означає замочок?</b>\n\n'
+    'Результат уже розрахований, але його <b>повне тлумачення</b> доступне після відкриття '
+    'відповідного доступу. Щоб дізнатися умови, напишіть мені в Telegram.\n\n'
+    '💜 <b>Бажаєте особисту консультацію?</b>\n\n'
+    'Для індивідуального нумерологічного розбору, консультації Таро або допомоги '
+    'з вибором послуги звертайтеся до мене:\n\n'
+    f'✉️ Telegram: <a href="{escape(TELEGRAM_URL,quote=True)}">@lakshmi_775</a>\n'
+    f'📸 Instagram: <a href="{escape(INSTAGRAM_URL,quote=True)}">@lakshmi_775</a>\n\n'
+    '✨ <b>З чого почати?</b>\n\n'
+    'Напишіть у чат свою <b>дату народження у форматі ДД.ММ.РРРР</b>.\n\n'
+    'Наприклад: <b>16.09.1998</b>\n\n'
+    'Після цього оберіть потрібний розділ і перегляньте свій розрахунок.'
+)
+
+def show_welcome(api,cid):
+    api.say(cid,WELCOME,parse_mode='HTML',link_preview_options={'is_disabled':True},reply_markup=main_menu())
 
 def show_home(api,cid,store):
     store.set_section(cid,'portrait')
@@ -458,6 +493,7 @@ def handle_invitation(api, msg, cid, store, prices):
         except (PaymentError,ValueError) as e: api.say(cid,str(e))
         return True
     if command == '/start' and len(args) == 2 and args[1].startswith('gift_'):
+        show_welcome(api,cid)
         try:
             birth = store.begin_invitation(cid,args[1][5:])
             if birth is not None:
@@ -527,6 +563,7 @@ def handle(api, update, store, prices):
         args = cb.get('data','').split(':')
         action = args[0]
         if action == 'home': show_home(api,cid,store); return
+        if action == 'info': show_welcome(api,cid); return
         if action == 'section':
             if len(args) == 2: show_section(api,cid,args[1],store,prices)
             return
@@ -583,7 +620,14 @@ def handle(api, update, store, prices):
     text = msg.get('text','').strip()
     if handle_invitation(api,msg,cid,store,prices): return
     command = text.split(' ',1)[0].split('@')[0]
-    if command in ('/start','/help','/menu'):
+    if command == '/start':
+        store.set_section(cid,'portrait')
+        show_welcome(api,cid)
+        if store.had_membership(cid) and not has_full_access(store,cid):
+            show_access(api,cid,store)
+        return
+    if command == '/info': show_welcome(api,cid); return
+    if command in ('/help','/menu'):
         show_home(api,cid,store); return
     if command == '/portrait': show_section(api,cid,'portrait',store,prices); return
     if command == '/karma': show_section(api,cid,'karma',store,prices); return
@@ -662,7 +706,7 @@ def main():
     api.call('getMe')
     if api.call('getWebhookInfo').get('url'):
         raise SystemExit('У бота вже налаштований webhook. Вимкніть його перед запуском polling.')
-    commands = [('start','Головне меню'),('menu','Розділи бота'),('portrait','Портрет'),('karma','Карма +/−'),('social','Соціальне призначення'),('money','Грошове призначення'),('matrix','Матриця'),('forgetdate','Видалити поточну дату'),('access','Мій доступ'),('purchases','Попередні покупки'),('myid','Мій Telegram ID'),('terms','Умови покупки'),
+    commands = [('start','Головне меню'),('menu','Розділи бота'),('info','Про бота та консультації'),('portrait','Портрет'),('karma','Карма +/−'),('social','Соціальне призначення'),('money','Грошове призначення'),('matrix','Матриця'),('forgetdate','Видалити поточну дату'),('access','Мій доступ'),('purchases','Попередні покупки'),('myid','Мій Telegram ID'),('terms','Умови покупки'),
                 ('paysupport','Допомога з оплатою'),('privacy','Обробка даних')]
     api.call('setMyCommands',{'commands':[{'command':c,'description':d} for c,d in commands]})
     offset = store.offset()

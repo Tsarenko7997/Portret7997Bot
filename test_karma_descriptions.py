@@ -75,7 +75,7 @@ class KarmaDescriptionFlowTests(unittest.TestCase):
         buttons=[b for row in data['reply_markup']['inline_keyboard'] for b in row
                  if b.get('callback_data','').startswith('karma_minus:')]
         self.assertEqual([b['text'] for b in buttons],
-                         ['➖ 1 · 7','➖ 2 · 11','➖ 3 · 4','➖ 4 · 4','➖ 5 · 4'])
+                         ['➖ 7','➖ 11','➖ 4','➖ 4','➖ 4'])
         for i,(button,arcanum) in enumerate(zip(buttons,[7,11,4,4,4]),1):
             handle(self.api,callback(button['callback_data']),self.store,self.prices)
             text=self.api.calls[-1][1]['text']

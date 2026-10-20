@@ -27,7 +27,7 @@ class PublicCalculationTests(unittest.TestCase):
         karma=[b for b in buttons if b.get('callback_data','').startswith(('karma_plus:','karma_minus:'))]
         self.assertEqual(len(karma),10)
         self.assertTrue(all(b['text'].startswith('🔒 ') for b in karma))
-        self.assertEqual(karma[0]['text'],'🔒 ➕ 1 · 3')
+        self.assertEqual(karma[0]['text'],'🔒 ➕ 3')
         caption=instagram_nickname_link(method,data)['caption']
         self.assertLessEqual(len(caption.encode('utf-16-le'))//2,1024)
     def test_public_and_old_callbacks_never_load_private_karma(self):

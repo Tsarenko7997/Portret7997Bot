@@ -270,10 +270,10 @@ def show_karma(api,cid,birth,store):
     result = calculate_karma(birth)
     active = has_full_access(store,cid)
     lock = '' if active else '🔒 '
-    buttons = [{'text':lock+f'➖ {i} · {value}',
+    buttons = [{'text':lock+f'➖ {value}',
                 'callback_data':f'karma_minus:{birth}:{i}'}
                for i,value in enumerate(result['negative'],1)]
-    positive_buttons = [{'text':lock+f'➕ {i} · {value}',
+    positive_buttons = [{'text':lock+f'➕ {value}',
                          'callback_data':f'karma_plus:{birth}:{i}'}
                         for i,value in enumerate(result['positive'],1)]
     api.call('sendPhoto',{'chat_id':cid,'caption':'Карма +/− · '+birth+'\n\n'+KARMA_INTRO+'\n\n'+('' if active else LOCKED_DESCRIPTION+'\n\n')+CONTACTS+'\n\n'+

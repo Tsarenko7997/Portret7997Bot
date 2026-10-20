@@ -71,7 +71,7 @@ class PositiveFlowTests(unittest.TestCase):
         plus=[b for b in buttons if b.get('callback_data','').startswith('karma_plus:')]
         minus=[b for b in buttons if b.get('callback_data','').startswith('karma_minus:')]
         self.assertEqual([b['text'] for b in plus],
-                         ['➕ 1 · 3','➕ 2 · 21','➕ 3 · 2','➕ 4 · 14','➕ 5 · 18'])
+                         ['➕ 3','➕ 21','➕ 2','➕ 14','➕ 18'])
         self.assertEqual(len(minus),5)
         self.assertLess(buttons.index(plus[-1]),buttons.index(minus[0]))
         self.assertNotIn('готуються',data['caption'])

@@ -12,7 +12,7 @@ import urllib.error
 from pathlib import Path
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from portrait import calculate, calculate_karma, calculate_social, calculate_money, calculate_matrix
+from portrait import calculate, calculate_karma, calculate_social, calculate_money, calculate_matrix, calculate_forecast
 from render import draw_portrait, draw_karma, draw_matrix
 from catalog import POSITIONS, FREE, description, chunks, position_meaning, TELEGRAM_HANDLE, TELEGRAM_URL, INSTAGRAM_URL, CONTACTS
 from karma_catalog import negative_description, positive_description
@@ -54,7 +54,7 @@ def instagram_nickname_link(method,data):
         result += TELEGRAM_HANDLE+suffix
     # Apply after shortening the URL, so all offsets refer to the final text.
     headings = (r'(?m)^(?:Позиція |Плюсова карма · |Мінусова карма · |'
-                r'Грошове призначення · |Аркан \d+ |Ваш аркан грошового призначення: )[^\n]+|'
+                r'Грошове призначення · |Прогноз на рік · |Прогноз на місяць · |Прогноз на день · |Аркан \d+ |Ваш аркан грошового призначення: )[^\n]+|'
                 r'^(?:Позитивні прояви|Можливі труднощі|Внутрішні установки та блоки|'
                 r'Кармічна тема|Внутрішні блоки|Сильні сторони|Ваш ресурс|Можливі прояви|'
                 r'Що може послаблювати ресурс|Ваш акцент)(?=\. )|'
@@ -110,15 +110,16 @@ SECTIONS = {
     'social':'Соціальне призначення',
     'year':'Прогноз на роки',
     'month':'Прогноз на місяці',
+    'day':'Прогноз на день',
 }
 SECTION_ICONS = {'portrait':'👤','karma':'🔮','matrix':'🔢','money':'💰',
-                 'social':'👫','year':'📅','month':'📆'}
+                 'social':'👫','year':'📅','month':'📆','day':'📆'}
 
 def main_menu():
-    buttons = [{'text':SECTION_ICONS[key]+' '+label+('' if key in ('portrait','karma','matrix','social','money') else ' · Незабаром'),
+    buttons = [{'text':SECTION_ICONS[key]+' '+label,
                 'callback_data':'section:'+key} for key,label in SECTIONS.items()]
     return {'inline_keyboard':[
-        [buttons[0]], buttons[1:3], buttons[3:5], buttons[5:7],
+        [buttons[0]], buttons[1:3], buttons[3:5], buttons[5:7], [buttons[7]],
         [{'text':'ℹ️ Інфо','callback_data':'info'}],
         [{'text':'Мій доступ','callback_data':'access'},
          {'text':'Написати в Telegram','url':TELEGRAM_URL}],
@@ -152,8 +153,9 @@ WELCOME = (
     '• <b>Матрицю:</b> поєднання чисел Вашої дати народження. Тлумачення готуються.\n'
     '• <b>Соціальне призначення:</b> аркан реалізації та взаємодії з іншими. Тлумачення готуються.\n'
     '• <b>Грошове призначення:</b> символічні підказки для роздумів про свої здібності й реалізацію.\n'
-    '• <b>Прогноз на рік (готується):</b> основні теми, можливості та уроки року в нумерологічному трактуванні.\n'
-    '• <b>Прогноз на місяць (готується):</b> теми місяця й підказки, на що звернути увагу.\n\n'
+    '• <b>Прогноз на рік:</b> два аркани для кожного з 10 років. Тлумачення готуються.\n'
+    '• <b>Прогноз на місяць:</b> аркани для 24 місяців. Тлумачення готуються.\n'
+    '• <b>Прогноз на день:</b> аркани для 31 дня. Тлумачення готуються.\n\n'
     '🔓 <b>Що доступно безкоштовно?</b>\n\n'
     'Розрахунки та перегляд отриманих чисел і арканів у готових розділах. '
     '<b>Описи 21 і 30 позицій особистого портрета</b> також відкриті для знайомства.\n\n'
@@ -179,8 +181,8 @@ def show_home(api,cid,store):
     birth = store.current_birth(cid)
     selected = ('Поточна дата: '+birth+'. Щоб змінити її, надішліть нову дату.\n\n') if birth else ''
     api.say(cid,'Вітаю! Це бот @lakshmi_775.\n\n'
-        'Оберіть розділ. Доступні «Портрет», «Карма +/−», «Матриця», розрахунки грошового й соціального призначення. '
-        'Інші розділи готуються.\n\n'
+        'Оберіть розділ: портрет, карма, матриця, грошове чи соціальне призначення, '
+        'прогноз на рік, місяць або день.\n\n'
         +selected+access_text(store,cid),reply_markup=main_menu())
 
 def show_section(api,cid,key,store,prices):
@@ -193,6 +195,12 @@ def show_section(api,cid,key,store,prices):
         text = ('Портрет\n\nНадішліть дату народження у форматі ДД.ММ.РРРР. '
                 'Наприклад: 16.09.1998.\nВи отримаєте схему та описи позицій. '
                 '21 і 30 відкриті для всіх; усі 33 доступні під час повного доступу.')
+    elif key in ('year','month','day'):
+        store.set_section(cid,key)
+        if birth:
+            show_forecast(api,cid,birth,store,key); return
+        text = SECTIONS[key]+'\n\nНадішліть дату народження у форматі ДД.ММ.РРРР. '
+        text += 'Розрахунок доступний усім. Описи відкриваються після особистого додавання автором.'
     elif key in ('karma','matrix','social','money'):
         store.set_section(cid,key)
         if birth:
@@ -206,6 +214,28 @@ def show_section(api,cid,key,store,prices):
         text += 'Зараз Ви можете скористатися розділом «Портрет».'
         if birth: text += '\n\nПоточна дата: '+birth+'.'
     api.say(cid,text,reply_markup={'inline_keyboard':[
+        [{'text':'Головне меню','callback_data':'home'}]]})
+
+
+def show_forecast(api,cid,birth,store,section):
+    today=datetime.now(ZoneInfo('Europe/Kyiv')).date()
+    rows=calculate_forecast(birth,section,today)
+    current={'year':str(today.year),'month':today.strftime('%m.%Y'),
+             'day':today.strftime('%d.%m.%Y')}[section]
+    title={'year':'Прогноз на рік','month':'Прогноз на місяць','day':'Прогноз на день'}[section]
+    text=title+' · '+birth+'\n\n'
+    if section == 'year':
+        text+=('Перше число: професійний розвиток, кар’єра, бізнес, фінанси.\n'
+               'Друге число: особисте життя, кохання, стосунки, емоційне здоров’я, сім’я.\n\n')
+    text+='\n'.join(' '.join([row[0],'/'.join(map(str,row[1:]))])+
+                    (' ← поточний період' if row[0]==current else '') for row in rows)
+    active=has_full_access(store,cid)
+    text+='\n\n'+('Детальні описи прогнозів готуються.' if active else LOCKED_DESCRIPTION)
+    text+='\n\nДля іншої людини надішліть нову дату народження.\n\n'+CONTACTS
+    api.say(cid,text,reply_markup={'inline_keyboard':locked_button(section,active)+[
+        [{'text':'📅 Прогноз на роки','callback_data':'section:year'},
+         {'text':'📆 Прогноз на місяці','callback_data':'section:month'}],
+        [{'text':'📆 Прогноз на день','callback_data':'section:day'}],
         [{'text':'Головне меню','callback_data':'home'}]]})
 
 def show_matrix(api,cid,birth,store):
@@ -570,7 +600,7 @@ def handle(api, update, store, prices):
             if len(args) == 2: show_section(api,cid,args[1],store,prices)
             return
         if action == 'locked':
-            if len(args) == 2 and args[1] in ('money','social','matrix'):
+            if len(args) == 2 and args[1] in ('money','social','matrix','year','month','day'):
                 if has_full_access(store,cid): show_section(api,cid,args[1],store,prices)
                 else: show_description_lock(api,cid,SECTIONS[args[1]],store.current_birth(cid),store,args[1])
             return
@@ -631,6 +661,8 @@ def handle(api, update, store, prices):
     if command == '/info': show_welcome(api,cid); return
     if command in ('/help','/menu'):
         show_home(api,cid,store); return
+    if command in ('/year','/month','/day'):
+        show_section(api,cid,command[1:],store,prices); return
     if command == '/portrait': show_section(api,cid,'portrait',store,prices); return
     if command == '/karma': show_section(api,cid,'karma',store,prices); return
     if command == '/social': show_section(api,cid,'social',store,prices); return
@@ -671,6 +703,8 @@ def handle(api, update, store, prices):
             show_money(api,cid,store.current_birth(cid),store); return
         api.say(cid,str(e)); return
     store.set_current_birth(cid,text)
+    if store.section(cid) in ('year','month','day'):
+        show_forecast(api,cid,text,store,store.section(cid)); return
     if store.section(cid) == 'karma':
         show_karma(api,cid,text,store); return
     if store.section(cid) == 'social':
@@ -708,7 +742,7 @@ def main():
     api.call('getMe')
     if api.call('getWebhookInfo').get('url'):
         raise SystemExit('У бота вже налаштований webhook. Вимкніть його перед запуском polling.')
-    commands = [('start','Головне меню'),('menu','Розділи бота'),('info','Про бота та консультації'),('portrait','Портрет'),('karma','Карма +/−'),('social','Соціальне призначення'),('money','Грошове призначення'),('matrix','Матриця'),('forgetdate','Видалити поточну дату'),('access','Мій доступ'),('purchases','Попередні покупки'),('myid','Мій Telegram ID'),('terms','Умови покупки'),
+    commands = [('start','Головне меню'),('menu','Розділи бота'),('info','Про бота та консультації'),('portrait','Портрет'),('karma','Карма +/−'),('social','Соціальне призначення'),('money','Грошове призначення'),('matrix','Матриця'),('year','Прогноз на роки'),('month','Прогноз на місяці'),('day','Прогноз на день'),('forgetdate','Видалити поточну дату'),('access','Мій доступ'),('purchases','Попередні покупки'),('myid','Мій Telegram ID'),('terms','Умови покупки'),
                 ('paysupport','Допомога з оплатою'),('privacy','Обробка даних')]
     api.call('setMyCommands',{'commands':[{'command':c,'description':d} for c,d in commands]})
     offset = store.offset()

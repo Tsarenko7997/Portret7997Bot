@@ -1,7 +1,7 @@
 """User-supplied portrait formulas. No date storage or interpretation."""
 import re
 import unicodedata
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 
 def reduce22(n):
     if n < 0:
@@ -105,3 +105,28 @@ def calculate(value):
     for k,sources in {'A':['П1','П4'],'B':['П2','П4'],'C':['П2','П5'],'D':['П3','П5'],'E':['П4','П6'],'F':['П5','П6'],'G1':['C','D'],'G2':['B','F'],'H':['A','E'],'Кп':['П10','П6'],'J':['П2','П8']}.items():
         put(k,[p[i] for i in sources])
     return p, steps
+
+
+
+def calculate_forecast(value,section,today):
+    """Inclusive windows around a supplied local date; R subtracts 22 repeatedly."""
+    portrait,_ = calculate(value)
+    birth_sum = sum(int(c) for c in value if c.isdigit())
+    digit_sum = lambda n: sum(int(c) for c in str(n) if c.isdigit())
+    if section == 'year':
+        return [(str(year),reduce22(portrait['П1']+portrait['П2']+reduce22(digit_sum(year))),
+                 reduce22(birth_sum+reduce22(digit_sum(year))))
+                for year in range(today.year-3,today.year+7)]
+    if section == 'month':
+        result=[]
+        for offset in range(-6,18):
+            year,month0=divmod(today.year*12+today.month-1+offset,12)
+            month=month0+1
+            result.append((f'{month:02d}.{year:04d}',
+                           reduce22(portrait['П1']+month+reduce22(digit_sum(year)))))
+        return result
+    if section == 'day':
+        days=[today+timedelta(days=offset) for offset in range(-5,26)]
+        return [(day.strftime('%d.%m.%Y'),reduce22(birth_sum+digit_sum(day.strftime('%d%m%Y'))))
+                for day in days]
+    raise ValueError('Невідомий розділ прогнозу.')

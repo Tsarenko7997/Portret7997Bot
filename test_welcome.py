@@ -34,8 +34,8 @@ class WelcomeTests(unittest.TestCase):
         self.assertIn('Надії Царенко',' '.join(parser.bold))
         self.assertIn('16.09.1998',parser.bold)
         self.assertEqual(parser.links,[TELEGRAM_URL,INSTAGRAM_URL])
-        self.assertIn('Прогноз на рік (готується)',parser.text)
-        self.assertIn('Прогноз на місяць (готується)',parser.text)
+        self.assertIn('Прогноз на рік:',parser.text)
+        self.assertIn('Прогноз на місяць:',parser.text)
     def test_start_and_info_show_welcome_without_changing_access(self):
         self.store.set_current_birth(7,'16.09.1998'); self.store.set_section(7,'money')
         handle(self.api,message('/start'),self.store,self.prices)

@@ -76,7 +76,7 @@ class ForecastTests(unittest.TestCase):
             handle(self.api,message('/day'),self.store,self.prices)
         data=self.api.calls[-1][1]
         self.assertIn('01.01.2027 12 ← поточний період',data['text'])
-        self.assertIn('Детальні описи прогнозів готуються',data['text'])
+        self.assertIn('Оберіть період нижче',data['text'])
         self.assertNotIn('🔒',data['text'])
         with patch('payments.time.time',return_value=self.store.membership_until(7)):
             handle(self.api,message('/day'),self.store,self.prices)

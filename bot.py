@@ -17,6 +17,7 @@ from render import draw_portrait, draw_karma, draw_matrix
 from catalog import POSITIONS, FREE, description, chunks, position_meaning, TELEGRAM_HANDLE, TELEGRAM_URL, INSTAGRAM_URL, CONTACTS
 from karma_catalog import negative_description, positive_description
 from money_catalog import money_description
+from forecast_catalog import forecast_description
 from payments import Store, Prices, PaymentError
 
 ROOT=Path(__file__).parent
@@ -57,7 +58,7 @@ def instagram_nickname_link(method,data):
                 r'Грошове призначення · |Прогноз на рік · |Прогноз на місяць · |Прогноз на день · |Аркан \d+ |Ваш аркан грошового призначення: )[^\n]+|'
                 r'^(?:Позитивні прояви|Можливі труднощі|Внутрішні установки та блоки|'
                 r'Кармічна тема|Внутрішні блоки|Сильні сторони|Ваш ресурс|Можливі прояви|'
-                r'Що може послаблювати ресурс|Ваш акцент)(?=\. )|'
+                r'Що може послаблювати ресурс|Ваш акцент|Ключові слова|Загальний опис|Позитивні події)(?=\. )|'
                 r'^(?:Карма|Позитивна карма|Негативна карма)(?=: )')
     for match in re.finditer(headings,result):
         entities.append({'type':'bold','offset':len(result[:match.start()].encode('utf-16-le'))//2,
@@ -153,9 +154,9 @@ WELCOME = (
     '• <b>Матрицю:</b> поєднання чисел Вашої дати народження. Тлумачення готуються.\n'
     '• <b>Соціальне призначення:</b> аркан реалізації та взаємодії з іншими. Тлумачення готуються.\n'
     '• <b>Грошове призначення:</b> символічні підказки для роздумів про свої здібності й реалізацію.\n'
-    '• <b>Прогноз на рік:</b> два аркани для кожного з 10 років. Тлумачення готуються.\n'
-    '• <b>Прогноз на місяць:</b> аркани для 24 місяців. Тлумачення готуються.\n'
-    '• <b>Прогноз на день:</b> аркани для 31 дня. Тлумачення готуються.\n\n'
+    '• <b>Прогноз на рік:</b> два аркани для кожного з 10 років та їхні тлумачення.\n'
+    '• <b>Прогноз на місяць:</b> аркани для 24 місяців та їхні тлумачення.\n'
+    '• <b>Прогноз на день:</b> аркани для 31 дня та їхні тлумачення.\n\n'
     '🔓 <b>Що доступно безкоштовно?</b>\n\n'
     'Розрахунки та перегляд отриманих чисел і арканів у готових розділах. '
     '<b>Описи 21 і 30 позицій особистого портрета</b> також відкриті для знайомства.\n\n'
@@ -217,6 +218,57 @@ def show_section(api,cid,key,store,prices):
         [{'text':'Головне меню','callback_data':'home'}]]})
 
 
+def forecast_buttons(birth,section,rows,active):
+    prefix = '' if active else '🔒 '
+    if section == 'year':
+        return [[{'text':f'{prefix}{period} · {icon} {number}',
+                  'callback_data':f'forecast:{birth}:year:{period}:{slot}'}
+                 for slot,icon,number in ((1,'💼',work),(2,'❤️',personal))]
+                for period,work,personal in rows]
+    buttons = [{'text':f'{prefix}{row[0]} · {row[1]}',
+                'callback_data':f'forecast:{birth}:{section}:{row[0]}:1'} for row in rows]
+    return [buttons[i:i+2] for i in range(0,len(buttons),2)]
+
+
+def show_forecast_period(api,cid,birth,section,period,slot,store):
+    if section not in ('year','month','day') or slot not in ('1','2'):
+        return
+    if section != 'year' and slot != '1':
+        return
+    formats = {'year':'%Y','month':'%m.%Y','day':'%d.%m.%Y'}
+    try:
+        target = datetime.strptime(period,formats[section]).date()
+        if target.strftime(formats[section]) != period:
+            return
+        row = next(row for row in calculate_forecast(birth,section,target) if row[0] == period)
+    except (ValueError,OverflowError,StopIteration):
+        api.say(cid,'Не вдалося відкрити період. Надішліть дату народження та оберіть прогноз ще раз.')
+        return
+    store.set_section(cid,section)
+    title = {'year':'Прогноз на рік','month':'Прогноз на місяць','day':'Прогноз на день'}[section]
+    title += ' · '+period
+    if not has_full_access(store,cid):
+        show_description_lock(api,cid,title,birth,store,section)
+        return
+    text = title+'\nДата народження: '+birth
+    if section == 'year':
+        focus = ('Професійний розвиток, кар’єра, бізнес, фінанси' if slot == '1' else
+                 'Особисте життя, кохання, стосунки, емоційний стан, сім’я')
+        text += '\n'+focus
+    try:
+        body = forecast_description(section,row[int(slot)],int(slot))
+    except (OSError,ValueError,KeyError,lzma.LZMAError):
+        api.say(cid,'Опис тимчасово недоступний. Спробуйте пізніше або напишіть '+SUPPORT+'.',
+                reply_markup={'inline_keyboard':[
+                    [{'text':'Повернутися до розрахунку','callback_data':'section:'+section}]]})
+        return
+    text += '\n\n'+body+'\n\n'+CONTACTS
+    for part in chunks(text):
+        api.say(cid,part,reply_markup={'inline_keyboard':[
+            [{'text':'Повернутися до розрахунку','callback_data':'section:'+section}],
+            [{'text':'Головне меню','callback_data':'home'}]]})
+
+
 def show_forecast(api,cid,birth,store,section):
     today=datetime.now(ZoneInfo('Europe/Kyiv')).date()
     rows=calculate_forecast(birth,section,today)
@@ -230,9 +282,10 @@ def show_forecast(api,cid,birth,store,section):
     text+='\n'.join(' '.join([row[0],'/'.join(map(str,row[1:]))])+
                     (' ← поточний період' if row[0]==current else '') for row in rows)
     active=has_full_access(store,cid)
-    text+='\n\n'+('Детальні описи прогнозів готуються.' if active else LOCKED_DESCRIPTION)
+    text+='\n\nОберіть період нижче, щоб прочитати його опис.'
+    if not active: text+='\n\n'+LOCKED_DESCRIPTION
     text+='\n\nДля іншої людини надішліть нову дату народження.\n\n'+CONTACTS
-    api.say(cid,text,reply_markup={'inline_keyboard':locked_button(section,active)+[
+    api.say(cid,text,reply_markup={'inline_keyboard':forecast_buttons(birth,section,rows,active)+[
         [{'text':'📅 Прогноз на роки','callback_data':'section:year'},
          {'text':'📆 Прогноз на місяці','callback_data':'section:month'}],
         [{'text':'📆 Прогноз на день','callback_data':'section:day'}],
@@ -603,6 +656,11 @@ def handle(api, update, store, prices):
             if len(args) == 2 and args[1] in ('money','social','matrix','year','month','day'):
                 if has_full_access(store,cid): show_section(api,cid,args[1],store,prices)
                 else: show_description_lock(api,cid,SECTIONS[args[1]],store.current_birth(cid),store,args[1])
+            return
+        if action == 'forecast':
+            if len(args) == 5:
+                birth = store.current_birth(cid) or args[1]
+                show_forecast_period(api,cid,birth,args[2],args[3],args[4],store)
             return
         if action == 'access': show_access(api,cid,store); return
         if action == 'purchases': show_purchases(api,cid,store); return

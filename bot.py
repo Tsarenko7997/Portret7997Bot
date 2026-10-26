@@ -227,7 +227,9 @@ def forecast_buttons(birth,section,rows,active):
                 for period,work,personal in rows]
     buttons = [{'text':f'{prefix}{row[0]} · {row[1]}',
                 'callback_data':f'forecast:{birth}:{section}:{row[0]}:1'} for row in rows]
-    return [buttons[i:i+2] for i in range(0,len(buttons),2)]
+    midpoint = (len(buttons) + 1) // 2
+    return [[buttons[i]] + ([buttons[i+midpoint]] if i+midpoint < len(buttons) else [])
+            for i in range(midpoint)]
 
 
 def show_forecast_period(api,cid,birth,section,period,slot,store):

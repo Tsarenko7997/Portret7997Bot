@@ -130,3 +130,11 @@ def calculate_forecast(value,section,today):
         return [(day.strftime('%d.%m.%Y'),reduce22(birth_sum+digit_sum(day.strftime('%d%m%Y'))))
                 for day in days]
     raise ValueError('Невідомий розділ прогнозу.')
+
+
+def calculate_compatibility(first, second):
+    """Partner portrait: reduce the sum of corresponding individual positions 1..8."""
+    a, _ = calculate(first)
+    b, _ = calculate(second)
+    return [(i, a[f'П{i}'], b[f'П{i}'], reduce22(a[f'П{i}']+b[f'П{i}']))
+            for i in range(1, 9)]

@@ -1,5 +1,6 @@
 """Transactional purchase ledger. Rights belong to (Telegram user, date, product)."""
 import os
+import json
 import secrets
 import sqlite3
 import time
@@ -267,12 +268,24 @@ class Store:
 
     def section(self,user_id):
         row = self.db.execute('SELECT value FROM state WHERE key=?',('section:'+str(user_id),)).fetchone()
-        return row[0] if row and row[0] in ('portrait','karma','social','money','matrix','year','month','day') else 'portrait'
+        return row[0] if row and row[0] in ('portrait','karma','social','money','matrix','year','month','day','compatibility') else 'portrait'
 
     def set_section(self,user_id,section):
-        if section not in ('portrait','karma','social','money','matrix','year','month','day'): raise ValueError('Unknown section')
+        if section not in ('portrait','karma','social','money','matrix','year','month','day','compatibility'): raise ValueError('Unknown section')
         with self.db:
             self.db.execute('INSERT OR REPLACE INTO state VALUES (?,?)',('section:'+str(user_id),section))
+
+    def compatibility_dates(self,user_id):
+        row = self.db.execute('SELECT value FROM state WHERE key=?',('compatibility:'+str(user_id),)).fetchone()
+        return json.loads(row[0]) if row else []
+
+    def set_compatibility_dates(self,user_id,dates):
+        from portrait import calculate
+        if len(dates) > 2: raise ValueError('Потрібні лише дві дати.')
+        for value in dates: calculate(value)
+        with self.db:
+            self.db.execute('INSERT OR REPLACE INTO state VALUES (?,?)',
+                            ('compatibility:'+str(user_id),json.dumps(dates)))
 
     def current_birth(self,user_id):
         row = self.db.execute('SELECT value FROM state WHERE key=?',('birth:'+str(user_id),)).fetchone()
@@ -288,6 +301,7 @@ class Store:
 
     def forget_birth(self,user_id):
         with self.db:
+            self.db.execute('DELETE FROM state WHERE key=?',('compatibility:'+str(user_id),))
             self.db.execute('DELETE FROM state WHERE key=?',('birth:'+str(user_id),))
             self.db.execute('DELETE FROM state WHERE key=?',('money_name:'+str(user_id),))
 

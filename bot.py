@@ -12,12 +12,13 @@ import urllib.error
 from pathlib import Path
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from portrait import calculate, calculate_karma, calculate_social, calculate_money, calculate_matrix, calculate_forecast
+from portrait import calculate, calculate_karma, calculate_social, calculate_money, calculate_matrix, calculate_forecast, calculate_compatibility
 from render import draw_portrait, draw_karma, draw_matrix
 from catalog import POSITIONS, FREE, description, chunks, position_meaning, TELEGRAM_HANDLE, TELEGRAM_URL, INSTAGRAM_URL, CONTACTS
 from karma_catalog import negative_description, positive_description
 from money_catalog import money_description
 from forecast_catalog import forecast_description
+from compatibility_catalog import compatibility_position
 from payments import Store, Prices, PaymentError
 
 ROOT=Path(__file__).parent
@@ -55,7 +56,7 @@ def instagram_nickname_link(method,data):
         result += TELEGRAM_HANDLE+suffix
     # Apply after shortening the URL, so all offsets refer to the final text.
     headings = (r'(?m)^(?:Позиція |Плюсова карма · |Мінусова карма · |'
-                r'Грошове призначення · |Прогноз на рік · |Прогноз на місяць · |Прогноз на день · |Аркан \d+ |Ваш аркан грошового призначення: )[^\n]+|'
+                r'Сумісність · |С[1-8] · |Грошове призначення · |Прогноз на рік · |Прогноз на місяць · |Прогноз на день · |Аркан \d+ |Ваш аркан грошового призначення: )[^\n]+|'
                 r'^(?:Позитивні прояви|Можливі труднощі|Внутрішні установки та блоки|'
                 r'Кармічна тема|Внутрішні блоки|Сильні сторони|Ваш ресурс|Можливі прояви|'
                 r'Що може послаблювати ресурс|Ваш акцент|Ключові слова|Загальний опис|Позитивні події)(?=\. )|'
@@ -112,15 +113,16 @@ SECTIONS = {
     'year':'Прогноз на роки',
     'month':'Прогноз на місяці',
     'day':'Прогноз на день',
+    'compatibility':'Сумісність',
 }
 SECTION_ICONS = {'portrait':'👤','karma':'🔮','matrix':'🔢','money':'💰',
-                 'social':'👫','year':'📅','month':'📆','day':'📆'}
+                 'social':'👫','year':'📅','month':'📆','day':'📆','compatibility':'👩‍❤️‍👨'}
 
 def main_menu():
     buttons = [{'text':SECTION_ICONS[key]+' '+label,
                 'callback_data':'section:'+key} for key,label in SECTIONS.items()]
     return {'inline_keyboard':[
-        [buttons[0]], buttons[1:3], buttons[3:5], buttons[5:7], [buttons[7]],
+        [buttons[0]], buttons[1:3], buttons[3:5], buttons[5:7], [buttons[7]], [buttons[8]],
         [{'text':'ℹ️ Інфо','callback_data':'info'}],
         [{'text':'Мій доступ','callback_data':'access'},
          {'text':'Написати в Telegram','url':TELEGRAM_URL}],
@@ -157,6 +159,7 @@ WELCOME = (
     '• <b>Прогноз на рік:</b> два аркани для кожного з 10 років та їхні тлумачення.\n'
     '• <b>Прогноз на місяць:</b> аркани для 24 місяців та їхні тлумачення.\n'
     '• <b>Прогноз на день:</b> аркани для 31 дня та їхні тлумачення.\n\n'
+    '• <b>Сумісність:</b> партнерський портрет із 8 позицій за двома датами народження.\n\n'
     '🔓 <b>Що доступно безкоштовно?</b>\n\n'
     'Розрахунки та перегляд отриманих чисел і арканів у готових розділах. '
     '<b>Описи 21 і 30 позицій особистого портрета</b> також відкриті для знайомства.\n\n'
@@ -183,12 +186,16 @@ def show_home(api,cid,store):
     selected = ('Поточна дата: '+birth+'. Щоб змінити її, надішліть нову дату.\n\n') if birth else ''
     api.say(cid,'Вітаю! Це бот @lakshmi_775.\n\n'
         'Оберіть розділ: портрет, карма, матриця, грошове чи соціальне призначення, '
-        'прогноз на рік, місяць або день.\n\n'
+        'прогноз на рік, місяць або день, сумісність.\n\n'
         +selected+access_text(store,cid),reply_markup=main_menu())
 
 def show_section(api,cid,key,store,prices):
     if key not in SECTIONS: return
     birth = store.current_birth(cid)
+    if key == 'compatibility':
+        store.set_section(cid,key)
+        show_compatibility(api,cid,store)
+        return
     if key == 'portrait':
         store.set_section(cid,'portrait')
         if birth:
@@ -216,6 +223,71 @@ def show_section(api,cid,key,store,prices):
         if birth: text += '\n\nПоточна дата: '+birth+'.'
     api.say(cid,text,reply_markup={'inline_keyboard':[
         [{'text':'Головне меню','callback_data':'home'}]]})
+
+
+def compatibility_navigation():
+    return [[{'text':'Інша пара','callback_data':'compat_reset'}],
+            [{'text':'Головне меню','callback_data':'home'}]]
+
+
+def show_compatibility(api,cid,store):
+    dates = store.compatibility_dates(cid)
+    if len(dates) < 2:
+        prompt = ('Надішліть дату народження першої людини у форматі ДД.ММ.РРРР. '
+                  'Можна надіслати обидві дати одним повідомленням, кожну з нового рядка.'
+                  if not dates else 'Перша людина: '+dates[0]+'.\nНадішліть дату народження другої людини.')
+        api.say(cid,'Сумісність · Партнерський портрет\n\n'+prompt,
+                reply_markup={'inline_keyboard':compatibility_navigation()})
+        return
+    rows = calculate_compatibility(*dates)
+    active = has_full_access(store,cid)
+    text = 'Сумісність · '+dates[0]+' та '+dates[1]+'\n\n'
+    text += '\n'.join(f'С{i}: {value}  ({a} + {b} → {value})' for i,a,b,value in rows)
+    text += '\n\nОберіть позицію, щоб прочитати, що вона описує.'
+    if not active: text += '\n\n'+LOCKED_DESCRIPTION
+    text += '\n\n'+CONTACTS
+    buttons = [[{'text':('' if active else '🔒 ')+f'С{i} · {value}',
+                 'callback_data':f'compat_position:{i}'}] for i,a,b,value in rows]
+    api.say(cid,text,reply_markup={'inline_keyboard':buttons+compatibility_navigation()})
+
+
+def show_compatibility_position(api,cid,number,store):
+    dates = store.compatibility_dates(cid)
+    if len(dates) != 2 or number not in range(1,9):
+        show_compatibility(api,cid,store)
+        return
+    i,a,b,value = calculate_compatibility(*dates)[number-1]
+    title = f'Сумісність · С{i} · Аркан {value}'
+    if not has_full_access(store,cid):
+        show_description_lock(api,cid,title,None,store,'compatibility')
+        return
+    try:
+        heading, meaning = compatibility_position(i)
+    except (ValueError,KeyError,TypeError):
+        api.say(cid,'Опис тимчасово недоступний. Напишіть '+SUPPORT+'.')
+        return
+    text = (title+'\n'+dates[0]+' та '+dates[1]+f'\n\nС{i} · '+heading+'\n\n'+meaning+
+            f'\n\nСкладові позиції: П{i} першої людини — {a}; П{i} другої — {b}.'+
+            f'\nРозрахунок: {a} + {b} → {value}.'+'\n\n'+CONTACTS)
+    api.say(cid,text,reply_markup={'inline_keyboard':[
+        [{'text':'Повернутися до сумісності','callback_data':'section:compatibility'}]]+
+        compatibility_navigation()})
+
+
+def receive_compatibility_dates(api,cid,text,store):
+    dates = store.compatibility_dates(cid)
+    parts = [part.strip() for part in re.split(r'[\s,;]+',text) if part.strip()]
+    try:
+        if not 1 <= len(parts) <= 2:
+            raise ValueError('Надішліть одну або дві дати у форматі ДД.ММ.РРРР.')
+        for part in parts: calculate(part)
+        # Two dates replace a pair atomically. One date starts a new pair after a completed result.
+        updated = parts if len(parts)==2 or len(dates)!=1 else dates+parts
+        store.set_compatibility_dates(cid,updated)
+    except ValueError as error:
+        api.say(cid,str(error))
+        return
+    show_compatibility(api,cid,store)
 
 
 def forecast_buttons(birth,section,rows,active):
@@ -664,6 +736,15 @@ def handle(api, update, store, prices):
                 birth = store.current_birth(cid) or args[1]
                 show_forecast_period(api,cid,birth,args[2],args[3],args[4],store)
             return
+        if action == 'compat_reset':
+            store.set_section(cid,'compatibility')
+            store.set_compatibility_dates(cid,[])
+            show_compatibility(api,cid,store); return
+        if action == 'compat_position':
+            if len(args)==2 and args[1] in tuple(map(str,range(1,9))):
+                store.set_section(cid,'compatibility')
+                show_compatibility_position(api,cid,int(args[1]),store)
+            return
         if action == 'access': show_access(api,cid,store); return
         if action == 'purchases': show_purchases(api,cid,store); return
         if action == 'money_name':
@@ -723,6 +804,7 @@ def handle(api, update, store, prices):
         show_home(api,cid,store); return
     if command in ('/year','/month','/day'):
         show_section(api,cid,command[1:],store,prices); return
+    if command == '/compatibility': show_section(api,cid,'compatibility',store,prices); return
     if command == '/portrait': show_section(api,cid,'portrait',store,prices); return
     if command == '/karma': show_section(api,cid,'karma',store,prices); return
     if command == '/social': show_section(api,cid,'social',store,prices); return
@@ -730,7 +812,7 @@ def handle(api, update, store, prices):
     if command == '/matrix': show_section(api,cid,'matrix',store,prices); return
     if command == '/forgetdate':
         store.forget_birth(cid)
-        api.say(cid,'Поточну дату та ім’я для грошового призначення видалено. '
+        api.say(cid,'Поточну дату, дати сумісності та ім’я для грошового призначення видалено. '
                     'Надішліть нову дату народження у форматі ДД.ММ.РРРР.'); return
     if command == '/terms': api.say(cid,TERMS); return
     if command in ('/paysupport','/support'):
@@ -747,6 +829,7 @@ def handle(api, update, store, prices):
             'Нова дата видаляє попереднє ім’я. Ім’я можна змінити в розділі грошового призначення. '
             'Нова дата замінює попередню поточну дату. Команда /forgetdate видаляє поточну дату, '
             'але не видаляє дати з історії покупок або повідомлень Telegram. '
+            'Для сумісності окремо зберігаються дві введені дати. Кнопка «Інша пара» очищує їх; /forgetdate також видаляє їх. '
             'Обраний розділ зберігається для Вашого акаунту. Повідомлення та результати залишаються в історії чату Telegram. '
             'Для персональних запрошень зберігаються захищений відбиток номера телефону, '
             'строк доступу, Telegram ID після активації та стан запрошення. '
@@ -755,6 +838,8 @@ def handle(api, update, store, prices):
             'Дані банківської картки бот не отримує. Питання щодо даних: '+SUPPORT+'.'); return
     if command == '/purchases': show_purchases(api,cid,store); return
     if command == '/access': show_access(api,cid,store); return
+    if store.section(cid) == 'compatibility':
+        receive_compatibility_dates(api,cid,text,store); return
     try: calculated,_ = calculate(text)
     except ValueError as e:
         if store.section(cid) == 'money' and store.current_birth(cid) and not any(c.isdigit() for c in text):
@@ -802,7 +887,7 @@ def main():
     api.call('getMe')
     if api.call('getWebhookInfo').get('url'):
         raise SystemExit('У бота вже налаштований webhook. Вимкніть його перед запуском polling.')
-    commands = [('start','Головне меню'),('menu','Розділи бота'),('info','Про бота та консультації'),('portrait','Портрет'),('karma','Карма +/−'),('social','Соціальне призначення'),('money','Грошове призначення'),('matrix','Матриця'),('year','Прогноз на роки'),('month','Прогноз на місяці'),('day','Прогноз на день'),('forgetdate','Видалити поточну дату'),('access','Мій доступ'),('purchases','Попередні покупки'),('myid','Мій Telegram ID'),('terms','Умови покупки'),
+    commands = [('start','Головне меню'),('menu','Розділи бота'),('info','Про бота та консультації'),('portrait','Портрет'),('karma','Карма +/−'),('social','Соціальне призначення'),('money','Грошове призначення'),('matrix','Матриця'),('year','Прогноз на роки'),('month','Прогноз на місяці'),('day','Прогноз на день'),('compatibility','Сумісність'),('forgetdate','Видалити поточну дату'),('access','Мій доступ'),('purchases','Попередні покупки'),('myid','Мій Telegram ID'),('terms','Умови покупки'),
                 ('paysupport','Допомога з оплатою'),('privacy','Обробка даних')]
     api.call('setMyCommands',{'commands':[{'command':c,'description':d} for c,d in commands]})
     offset = store.offset()

@@ -86,7 +86,7 @@ class CompatibilityTests(unittest.TestCase):
         self.assertIn('🔒',self.api.messages[-1]['text'])
     def test_member_and_expiry(self):
         self.message('/compatibility');self.message('14.11.1948 01.07.1961')
-        with patch.object(bot,'has_full_access',return_value=True),patch.object(bot,'compatibility_position',return_value=('Synthetic title','Synthetic meaning')):
+        with patch.object(bot,'has_full_access',return_value=True),patch.object(bot,'compatibility_position',return_value=('Synthetic title','Synthetic meaning')),patch.object(bot,'compatibility_description',return_value='Synthetic reading'):
             self.callback('compat_position:4')
             self.assertIn('Synthetic meaning',self.api.messages[-1]['text'])
             self.assertIn('П4 першої людини — 3',self.api.messages[-1]['text'])
@@ -111,3 +111,54 @@ class CompatibilityTests(unittest.TestCase):
         read_catalog.cache_clear()
 
 if __name__=='__main__':unittest.main()
+
+class CompatibilityCatalogTests(unittest.TestCase):
+    @staticmethod
+    def fixture():
+        return [dict(number=n,name=f'Fixture {n}',keywords='Synthetic keywords',positions={
+            str(i):dict(general=f'General {n}/{i}',positive=f'Positive {n}/{i}',difficulties=f'Difficulties {n}/{i}')
+            for i in range(1,9)}) for n in range(1,23)]
+    @staticmethod
+    def encoded(entries):
+        import base64,hashlib,lzma
+        raw=json.dumps(entries).encode()
+        return dict(COMPATIBILITY_XZ_PARTS='1',COMPATIBILITY_SHA256=hashlib.sha256(raw).hexdigest(),
+                    COMPATIBILITY_XZ_B64_1=base64.b64encode(lzma.compress(raw)).decode())
+    def tearDown(self):
+        from compatibility_catalog import read_arcana_catalog
+        read_arcana_catalog.cache_clear()
+    def test_all_176_contexts_and_formatting(self):
+        from compatibility_catalog import read_arcana_catalog,compatibility_description
+        read_arcana_catalog.cache_clear()
+        with patch.dict(os.environ,self.encoded(self.fixture())):
+            texts=set()
+            for n in range(1,23):
+                for i in range(1,9):
+                    text=compatibility_description(i,n);texts.add(text)
+                    self.assertIn(f'General {n}/{i}',text)
+                    self.assertIn(f'Positive {n}/{i}',text)
+                    self.assertIn(f'Difficulties {n}/{i}',text)
+                    rendered=bot.instagram_nickname_link('sendMessage',{'text':text})
+                    entities=[e for e in rendered['entities'] if e['type']=='bold']
+                    self.assertEqual(len(entities),5)
+                    self.assertLess(len(text.encode('utf-16-le'))//2,4096)
+            self.assertEqual(len(texts),176)
+    def test_corruption_and_missing_positions_rejected(self):
+        from compatibility_catalog import read_arcana_catalog
+        cases=[]
+        corrupt=self.encoded(self.fixture());corrupt['COMPATIBILITY_SHA256']='0'*64;cases.append(corrupt)
+        entries=self.fixture();entries[0]['positions'].pop('8');cases.append(self.encoded(entries))
+        entries=self.fixture();entries[1]['number']=1;cases.append(self.encoded(entries))
+        entries=self.fixture();entries[0]['positions']['1']['positive']='';cases.append(self.encoded(entries))
+        for env in cases:
+            read_arcana_catalog.cache_clear()
+            with patch.dict(os.environ,env):
+                with self.assertRaises(ValueError):read_arcana_catalog()
+    def test_locked_user_never_loads_private_readings(self):
+        store=Store(Path(tempfile.mkdtemp())/'state.sqlite3')
+        try:
+            store.set_compatibility_dates(1,['14.11.1948','01.07.1961'])
+            with patch.object(bot,'compatibility_description',side_effect=AssertionError('Private catalog read')):
+                api=API();bot.show_compatibility_position(api,1,4,store)
+            self.assertIn('🔒',api.messages[-1]['text'])
+        finally:store.close()

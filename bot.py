@@ -18,7 +18,7 @@ from catalog import POSITIONS, FREE, description, chunks, position_meaning, TELE
 from karma_catalog import negative_description, positive_description
 from money_catalog import money_description
 from forecast_catalog import forecast_description
-from compatibility_catalog import compatibility_position
+from compatibility_catalog import compatibility_position, compatibility_description
 from payments import Store, Prices, PaymentError
 
 ROOT=Path(__file__).parent
@@ -263,10 +263,12 @@ def show_compatibility_position(api,cid,number,store):
         return
     try:
         heading, meaning = compatibility_position(i)
-    except (ValueError,KeyError,TypeError):
+        body = compatibility_description(i,value)
+    except (OSError,ValueError,KeyError,TypeError,lzma.LZMAError):
         api.say(cid,'Опис тимчасово недоступний. Напишіть '+SUPPORT+'.')
         return
     text = (title+'\n'+dates[0]+' та '+dates[1]+f'\n\nС{i} · '+heading+'\n\n'+meaning+
+            '\n\n'+body+
             f'\n\nСкладові позиції: П{i} першої людини — {a}; П{i} другої — {b}.'+
             f'\nРозрахунок: {a} + {b} → {value}.'+'\n\n'+CONTACTS)
     api.say(cid,text,reply_markup={'inline_keyboard':[

@@ -112,7 +112,7 @@ def draw_portrait(value,p):
     out=BytesIO(); im.save(out,'PNG'); return out.getvalue()
 
 
-def draw_compatibility(first,second,rows):
+def draw_compatibility(first,second,rows,kind='general'):
     """Eight final arcana on the partner diagram, using the portrait's paper and frames."""
     from PIL import ImageFilter
     scale=2
@@ -131,8 +131,10 @@ def draw_compatibility(first,second,rows):
         d.line([(round(x*scale),round(y*scale)) for x,y in points],
                fill=fill,width=round(line_width*scale),joint='curve')
     text(width/2,32,'@lakshmi_775',12,'#69717a')
-    text(width/2,76,'Сумісність',32,'#283f59')
+    title={'love':'Любовна сумісність','general':'Загальна сумісність','parent':'Батьківська сумісність'}[kind]
+    text(width/2,76,title,29,'#283f59')
     text(width/2,116,first+' та '+second,20,'#4e5660')
+    if kind=='parent':text(width/2,147,'Перша дата: мама / тато · друга: дитина',13,'#69717a')
     # Main inverted triangle; external task and resource stay to its right and below.
     path([(540,175),(410,590),(115,590)])
     nodes={1:(110,235),2:(285,235),3:(460,235),

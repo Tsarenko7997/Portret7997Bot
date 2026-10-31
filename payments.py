@@ -275,6 +275,15 @@ class Store:
         with self.db:
             self.db.execute('INSERT OR REPLACE INTO state VALUES (?,?)',('section:'+str(user_id),section))
 
+    def compatibility_kind(self,user_id):
+        row = self.db.execute('SELECT value FROM state WHERE key=?',('compatibility_kind:'+str(user_id),)).fetchone()
+        return row[0] if row and row[0] in ('love','general','parent') else None
+
+    def set_compatibility_kind(self,user_id,kind):
+        if kind not in ('love','general','parent'): raise ValueError('Unknown compatibility kind')
+        with self.db:
+            self.db.execute('INSERT OR REPLACE INTO state VALUES (?,?)',('compatibility_kind:'+str(user_id),kind))
+
     def compatibility_dates(self,user_id):
         row = self.db.execute('SELECT value FROM state WHERE key=?',('compatibility:'+str(user_id),)).fetchone()
         return json.loads(row[0]) if row else []
@@ -301,7 +310,7 @@ class Store:
 
     def forget_birth(self,user_id):
         with self.db:
-            self.db.execute('DELETE FROM state WHERE key=?',('compatibility:'+str(user_id),))
+            self.db.execute('DELETE FROM state WHERE key IN (?,?)',('compatibility:'+str(user_id),'compatibility_kind:'+str(user_id)))
             self.db.execute('DELETE FROM state WHERE key=?',('birth:'+str(user_id),))
             self.db.execute('DELETE FROM state WHERE key=?',('money_name:'+str(user_id),))
 

@@ -59,7 +59,7 @@ def instagram_nickname_link(method,data):
                 r'Сумісність · |С[1-8] · |Грошове призначення · |Прогноз на рік · |Прогноз на місяць · |Прогноз на день · |Аркан \d+ |Ваш аркан грошового призначення: )[^\n]+|'
                 r'^(?:Позитивні прояви|Можливі труднощі|Внутрішні установки та блоки|'
                 r'Кармічна тема|Внутрішні блоки|Сильні сторони|Ваш ресурс|Можливі прояви|'
-                r'Що може послаблювати ресурс|Ваш акцент|Ключові слова|Загальний опис|Позитивні події)(?=\. )|'
+                r'Що може послаблювати ресурс|Ваш акцент|Практичний орієнтир|Ключові слова|Загальний опис|Позитивні події)(?=\. )|'
                 r'^(?:Карма|Позитивна карма|Негативна карма)(?=: )')
     for match in re.finditer(headings,result):
         entities.append({'type':'bold','offset':len(result[:match.start()].encode('utf-16-le'))//2,
@@ -159,7 +159,7 @@ WELCOME = (
     '• <b>Прогноз на рік:</b> два аркани для кожного з 10 років та їхні тлумачення.\n'
     '• <b>Прогноз на місяць:</b> аркани для 24 місяців та їхні тлумачення.\n'
     '• <b>Прогноз на день:</b> аркани для 31 дня та їхні тлумачення.\n\n'
-    '• <b>Сумісність:</b> партнерський портрет із 8 позицій за двома датами народження.\n\n'
+    '• <b>Сумісність:</b> любовна, загальна та батьківська; 8 позицій за двома датами народження.\n\n'
     '🔓 <b>Що доступно безкоштовно?</b>\n\n'
     'Розрахунки та перегляд отриманих чисел і арканів у готових розділах. '
     '<b>Описи 21 і 30 позицій особистого портрета</b> також відкриті для знайомства.\n\n'
@@ -194,7 +194,7 @@ def show_section(api,cid,key,store,prices):
     birth = store.current_birth(cid)
     if key == 'compatibility':
         store.set_section(cid,key)
-        show_compatibility(api,cid,store)
+        show_compatibility_types(api,cid,store)
         return
     if key == 'portrait':
         store.set_section(cid,'portrait')
@@ -225,41 +225,66 @@ def show_section(api,cid,key,store,prices):
         [{'text':'Головне меню','callback_data':'home'}]]})
 
 
+COMPATIBILITY_KINDS = {'love':'Любовна','general':'Загальна','parent':'Батьківська'}
+
+
+def show_compatibility_types(api,cid,store):
+    rows = [[{'text':icon+' '+COMPATIBILITY_KINDS[kind], 'callback_data':'compat_kind:'+kind}]
+            for kind,icon in [('love','❤️'),('general','🤝'),('parent','👨‍👩‍👧')]]
+    if len(store.compatibility_dates(cid))==2 and store.compatibility_kind(cid):
+        rows.append([{'text':'Останній результат','callback_data':'compat_result'}])
+    rows.append([{'text':'Головне меню','callback_data':'home'}])
+    api.say(cid,'Сумісність · Оберіть тип взаємодії\n\n'
+                '❤️ Любовна: зближення, почуття та партнерство.\n'
+                '🤝 Загальна: співпраця, колеги, друзі та спільні справи.\n'
+                '👨‍👩‍👧 Батьківська: взаємодія мами або тата з дитиною.',
+            reply_markup={'inline_keyboard':rows})
+
+
 def compatibility_navigation():
-    return [[{'text':'Інша пара','callback_data':'compat_reset'}],
+    return [[{'text':'Інша пара','callback_data':'compat_reset'},
+             {'text':'Змінити тип','callback_data':'compat_types'}],
             [{'text':'Головне меню','callback_data':'home'}]]
 
 
 def show_compatibility(api,cid,store):
+    kind=store.compatibility_kind(cid)
+    if kind is None:
+        show_compatibility_types(api,cid,store);return
     dates = store.compatibility_dates(cid)
     if len(dates) < 2:
         prompt = ('Надішліть дату народження першої людини у форматі ДД.ММ.РРРР. '
                   'Можна надіслати обидві дати одним повідомленням, кожну з нового рядка.'
                   if not dates else 'Перша людина: '+dates[0]+'.\nНадішліть дату народження другої людини.')
-        api.say(cid,'Сумісність · Партнерський портрет\n\n'+prompt,
+        if kind=='parent':
+            prompt=('Надішліть дату народження мами або тата, потім дату дитини. '
+                    'Можна одним повідомленням у цьому порядку.' if not dates else
+                    'Мама / тато: '+dates[0]+'.\nНадішліть дату народження дитини.')
+        api.say(cid,'Сумісність · '+COMPATIBILITY_KINDS[kind]+'\n\n'+prompt,
                 reply_markup={'inline_keyboard':compatibility_navigation()})
         return
     rows = calculate_compatibility(*dates)
     active = has_full_access(store,cid)
-    caption = 'Сумісність · '+dates[0]+' та '+dates[1]+'\n\n'
+    caption = 'Сумісність · '+COMPATIBILITY_KINDS[kind]+'\n'+dates[0]+' та '+dates[1]+'\n\n'
+    if kind=='parent':caption+='Перша дата: мама / тато; друга: дитина.\n\n'
     try:
-        caption += '\n'.join(f'С{i} · '+compatibility_position(i)[0] for i in range(1,9))
+        caption += '\n'.join(f'С{i} · '+compatibility_position(i,kind)[0] for i in range(1,9))
     except (ValueError,KeyError,TypeError):
         caption += 'Пояснення позицій тимчасово недоступні.'
     caption += '\n\nНатисніть номер позиції нижче, щоб відкрити її опис.'
     if not active: caption += '\n\n'+LOCKED_DESCRIPTION
     caption += '\n\n'+CONTACTS
     buttons = [{'text':('' if active else '🔒 ')+str(i),
-                'callback_data':f'compat_position:{i}'} for i in range(1,9)]
+                'callback_data':f'compat_position:{kind}:{i}'} for i in range(1,9)]
     keyboard = [buttons[:4],buttons[4:]]+compatibility_navigation()
     # Send a photo with a short position key; reserve long catalogs for text messages.
     if len(caption.encode('utf-16-le'))//2 <= 1024:
         api.call('sendPhoto',{'chat_id':cid,'caption':caption,
                  'reply_markup':{'inline_keyboard':keyboard}},
-                 ('photo',draw_compatibility(*dates,rows),'compatibility.png'))
+                 ('photo',draw_compatibility(*dates,rows,kind),'compatibility.png'))
     else:
         api.call('sendPhoto',{'chat_id':cid,'caption':'Сумісність · '+dates[0]+' та '+dates[1]},
-                 ('photo',draw_compatibility(*dates,rows),'compatibility.png'))
+                 ('photo',draw_compatibility(*dates,rows,kind),'compatibility.png'))
         for part in chunks(caption):
             api.say(cid,part,reply_markup={'inline_keyboard':keyboard})
 
@@ -269,26 +294,30 @@ def show_compatibility_position(api,cid,number,store):
     if len(dates) != 2 or number not in range(1,9):
         show_compatibility(api,cid,store)
         return
+    kind=store.compatibility_kind(cid) or 'general'
     i,a,b,value = calculate_compatibility(*dates)[number-1]
-    title = f'Сумісність · С{i} · Аркан {value}'
+    title = f'Сумісність · {COMPATIBILITY_KINDS[kind]} · С{i} · Аркан {value}'
     if not has_full_access(store,cid):
         show_description_lock(api,cid,title,None,store,'compatibility')
         return
     try:
-        heading, meaning = compatibility_position(i)
-        body = compatibility_description(i,value)
+        heading, meaning = compatibility_position(i,kind)
+        body = compatibility_description(i,value,kind)
     except (OSError,ValueError,KeyError,TypeError,lzma.LZMAError):
         api.say(cid,'Опис тимчасово недоступний. Напишіть '+SUPPORT+'.')
         return
     text = (title+'\n'+dates[0]+' та '+dates[1]+f'\n\nС{i} · '+heading+'\n\n'+meaning+
             '\n\n'+body+
             '\n\n'+CONTACTS)
-    api.say(cid,text,reply_markup={'inline_keyboard':[
-        [{'text':'Повернутися до сумісності','callback_data':'section:compatibility'}]]+
-        compatibility_navigation()})
+    messages=list(chunks(text))
+    for index,part in enumerate(messages):
+        extra={'reply_markup':{'inline_keyboard':[[{'text':'Повернутися до сумісності','callback_data':'compat_result'}]]+compatibility_navigation()}} if index==len(messages)-1 else {}
+        api.say(cid,part,**extra)
 
 
 def receive_compatibility_dates(api,cid,text,store):
+    if store.compatibility_kind(cid) is None:
+        show_compatibility_types(api,cid,store);return
     dates = store.compatibility_dates(cid)
     parts = [part.strip() for part in re.split(r'[\s,;]+',text) if part.strip()]
     try:
@@ -750,14 +779,39 @@ def handle(api, update, store, prices):
                 birth = store.current_birth(cid) or args[1]
                 show_forecast_period(api,cid,birth,args[2],args[3],args[4],store)
             return
+        if action == 'compat_types':
+            store.set_section(cid,'compatibility')
+            show_compatibility_types(api,cid,store);return
+        if action == 'compat_result':
+            store.set_section(cid,'compatibility')
+            show_compatibility(api,cid,store);return
+        if action == 'compat_kind':
+            if len(args)==2 and args[1] in COMPATIBILITY_KINDS:
+                previous=store.compatibility_kind(cid)
+                if previous!=args[1] and 'parent' in (previous,args[1]):
+                    store.set_compatibility_dates(cid,[])
+                store.set_compatibility_kind(cid,args[1])
+                store.set_section(cid,'compatibility')
+                show_compatibility(api,cid,store)
+            return
         if action == 'compat_reset':
             store.set_section(cid,'compatibility')
             store.set_compatibility_dates(cid,[])
             show_compatibility(api,cid,store); return
         if action == 'compat_position':
-            if len(args)==2 and args[1] in tuple(map(str,range(1,9))):
+            current=store.compatibility_kind(cid) or 'general'
+            if len(args)==3:
+                kind,number=args[1:]
+                if kind not in COMPATIBILITY_KINDS:return
+                if kind!=current:
+                    api.say(cid,'Тип сумісності змінено. Відкрийте позицію в актуальному результаті.')
+                    show_compatibility(api,cid,store);return
+            elif len(args)==2:kind,number=current,args[1]
+            else:return
+            if number in tuple(map(str,range(1,9))):
                 store.set_section(cid,'compatibility')
-                show_compatibility_position(api,cid,int(args[1]),store)
+                if store.compatibility_kind(cid) is None:store.set_compatibility_kind(cid,kind)
+                show_compatibility_position(api,cid,int(number),store)
             return
         if action == 'access': show_access(api,cid,store); return
         if action == 'purchases': show_purchases(api,cid,store); return
@@ -843,7 +897,7 @@ def handle(api, update, store, prices):
             'Нова дата видаляє попереднє ім’я. Ім’я можна змінити в розділі грошового призначення. '
             'Нова дата замінює попередню поточну дату. Команда /forgetdate видаляє поточну дату, '
             'але не видаляє дати з історії покупок або повідомлень Telegram. '
-            'Для сумісності окремо зберігаються дві введені дати. Кнопка «Інша пара» очищує їх; /forgetdate також видаляє їх. '
+            'Для сумісності зберігаються обраний тип і дві введені дати. Кнопка «Інша пара» очищує їх; /forgetdate також видаляє їх. '
             'Обраний розділ зберігається для Вашого акаунту. Повідомлення та результати залишаються в історії чату Telegram. '
             'Для персональних запрошень зберігаються захищений відбиток номера телефону, '
             'строк доступу, Telegram ID після активації та стан запрошення. '

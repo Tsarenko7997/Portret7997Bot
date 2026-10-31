@@ -47,6 +47,8 @@ def read_forecast_catalog():
                 if not isinstance(fields, dict) or any(
                         not isinstance(fields.get(k), str) or not fields[k].strip() for k in FIELDS):
                     raise ValueError('Неповний опис прогнозу.')
+                if 'practical' in fields and (not isinstance(fields['practical'],str) or not fields['practical'].strip()):
+                    raise ValueError('Некоректний практичний орієнтир.')
         catalog[number] = entry
     return catalog
 
@@ -60,4 +62,5 @@ def forecast_description(section, arcanum, slot=1):
         fields = fields['professional' if slot == 1 else 'personal']
     labels = ('Ключові слова', 'Загальний опис', 'Позитивні події', 'Можливі труднощі')
     return '\n\n'.join([f"Аркан {arcanum} · {entry['name']}"] +
-                        [label + '. ' + fields[key] for label, key in zip(labels, FIELDS)])
+                        [label + '. ' + fields[key] for label, key in zip(labels, FIELDS)] +
+                        (['Практичний орієнтир. '+fields['practical']] if fields.get('practical') else []))

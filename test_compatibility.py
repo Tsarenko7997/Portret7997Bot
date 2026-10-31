@@ -33,7 +33,8 @@ class CompatibilityTests(unittest.TestCase):
         self.store=Store(Path(self.directory.name)/'state.sqlite3')
         self.api=API()
         self.store.set_current_birth(1,'16.09.1998')
-        self.position_patch=patch.object(bot,'compatibility_position',side_effect=lambda i:(f'Position meaning {i}','Synthetic meaning'))
+        self.store.set_compatibility_kind(1,'general')
+        self.position_patch=patch.object(bot,'compatibility_position',side_effect=lambda i,kind='general':(f'Position meaning {i}','Synthetic meaning'))
         self.position_patch.start()
         self.image_patch=patch.object(bot,'draw_compatibility',return_value=b'synthetic image')
         self.draw=self.image_patch.start()
@@ -178,3 +179,110 @@ class CompatibilityCatalogTests(unittest.TestCase):
                 api=API();bot.show_compatibility_position(api,1,4,store)
             self.assertIn('🔒',api.messages[-1]['text'])
         finally:store.close()
+
+class CompatibilityKindTests(unittest.TestCase):
+    def setUp(self):
+        self.directory=tempfile.TemporaryDirectory()
+        self.store=Store(Path(self.directory.name)/'state.sqlite3');self.api=API()
+        self.images=patch.object(bot,'draw_compatibility',return_value=b'fixture image');self.draw=self.images.start()
+        self.positions=patch.object(bot,'compatibility_position',side_effect=lambda n,k='general':(f'{k} title {n}',f'{k} meaning {n}'));self.positions.start()
+    def tearDown(self):
+        self.positions.stop();self.images.stop();self.store.close();self.directory.cleanup()
+    message=CompatibilityTests.message
+    callback=CompatibilityTests.callback
+    def test_initial_selection_and_dates_require_choice(self):
+        self.message('/compatibility')
+        buttons=self.api.messages[-1]['reply_markup']['inline_keyboard']
+        self.assertEqual([r[0]['callback_data'] for r in buttons[:3]],['compat_kind:love','compat_kind:general','compat_kind:parent'])
+        self.message('14.11.1948 01.07.1961')
+        self.assertEqual(self.store.compatibility_dates(1),[])
+    def test_love_and_general_reuse_pair_but_change_button_context(self):
+        self.callback('compat_kind:love');self.message('14.11.1948 01.07.1961')
+        pair=self.store.compatibility_dates(1)
+        self.assertEqual(self.draw.call_args.args[-1],'love')
+        self.callback('compat_kind:general')
+        self.assertEqual(self.store.compatibility_dates(1),pair)
+        self.assertIn('compat_position:general:1',str(self.api.messages[-1]))
+        self.assertIn('Загальна',self.api.messages[-1]['text'])
+    def test_parent_role_boundary_clears_old_pair(self):
+        self.callback('compat_kind:love');self.message('14.11.1948 01.07.1961')
+        self.callback('compat_kind:parent')
+        self.assertEqual(self.store.compatibility_dates(1),[])
+        self.assertIn('мами або тата',self.api.messages[-1]['text'])
+        self.message('16.09.1998');self.assertIn('дитини',self.api.messages[-1]['text'])
+        self.message('20.03.2024')
+        self.assertEqual(self.store.compatibility_dates(1),['16.09.1998','20.03.2024'])
+        self.assertEqual(self.draw.call_args.args[-1],'parent')
+        self.callback('compat_kind:general')
+        self.assertEqual(self.store.compatibility_dates(1),[])
+    def test_stale_kind_button_never_reads_wrong_text(self):
+        self.callback('compat_kind:love');self.message('14.11.1948 01.07.1961');self.callback('compat_kind:general')
+        with patch.object(bot,'compatibility_description',side_effect=AssertionError('Stale read')):
+            self.callback('compat_position:love:1')
+        self.assertEqual(self.store.compatibility_kind(1),'general')
+        self.assertTrue(any('Тип сумісності змінено' in m['text'] for m in self.api.messages))
+    def test_all_kinds_enforce_membership_before_reading(self):
+        for kind in ('love','general','parent'):
+            self.store.set_compatibility_kind(1,kind)
+            self.store.set_compatibility_dates(1,['16.09.1998','20.03.2024'])
+            with patch.object(bot,'compatibility_description',side_effect=AssertionError('Locked read')):
+                self.callback(f'compat_position:{kind}:4')
+            self.assertIn('🔒',self.api.messages[-1]['text'])
+    def test_member_reads_selected_context_and_no_formula(self):
+        self.callback('compat_kind:parent');self.message('16.09.1998 20.03.2024')
+        with patch.object(bot,'has_full_access',return_value=True),patch.object(bot,'compatibility_description',return_value='Parent fixture') as reading:
+            self.callback('compat_position:parent:3')
+            self.assertEqual(reading.call_args.args[0],3);self.assertEqual(reading.call_args.args[2],'parent')
+        self.assertIn('Parent fixture',self.api.messages[-1]['text'])
+        self.assertNotIn('→',self.api.messages[-1]['text'])
+    def test_kind_persists_and_forget_clears_it(self):
+        self.store.set_compatibility_kind(1,'parent');self.store.close()
+        self.store=Store(Path(self.directory.name)/'state.sqlite3')
+        self.assertEqual(self.store.compatibility_kind(1),'parent')
+        self.message('/forgetdate');self.assertIsNone(self.store.compatibility_kind(1))
+    def test_new_pair_retains_kind_and_type_picker_keeps_dates(self):
+        self.callback('compat_kind:love');self.message('14.11.1948 01.07.1961')
+        self.callback('compat_types');self.assertEqual(len(self.store.compatibility_dates(1)),2)
+        self.callback('compat_result');self.assertIn('Любовна',self.api.messages[-1]['text'])
+        self.callback('compat_reset')
+        self.assertEqual(self.store.compatibility_dates(1),[]);self.assertEqual(self.store.compatibility_kind(1),'love')
+
+class ExpandedCatalogTests(unittest.TestCase):
+    def tearDown(self):
+        from compatibility_catalog import read_arcana_catalog
+        from forecast_catalog import read_forecast_catalog
+        read_arcana_catalog.cache_clear();read_forecast_catalog.cache_clear()
+    def test_528_distinct_contexts_and_practical_heading(self):
+        from compatibility_catalog import read_arcana_catalog,compatibility_description
+        rows=CompatibilityCatalogTests.fixture()
+        for row in rows:
+            row['variants']={kind:{'keywords':kind,'positions':{str(i):{key:f'{kind}/{row["number"]}/{i}/{key}' for key in ('general','positive','difficulties','practical')} for i in range(1,9)}} for kind in ('love','general','parent')}
+        with patch.dict(os.environ,CompatibilityCatalogTests.encoded(rows)):
+            read_arcana_catalog.cache_clear();texts=set()
+            for kind in ('love','general','parent'):
+                for n in range(1,23):
+                    for i in range(1,9):
+                        text=compatibility_description(i,n,kind);texts.add(text)
+                        self.assertIn(f'{kind}/{n}/{i}/general',text)
+                        self.assertIn('Практичний орієнтир.',text)
+            self.assertEqual(len(texts),528)
+    def test_partial_kind_catalog_is_rejected(self):
+        from compatibility_catalog import read_arcana_catalog
+        rows=CompatibilityCatalogTests.fixture();rows[0]['variants']={'love':{}}
+        with patch.dict(os.environ,CompatibilityCatalogTests.encoded(rows)):
+            read_arcana_catalog.cache_clear()
+            with self.assertRaises(ValueError):read_arcana_catalog()
+    def test_forecast_practical_is_optional_but_validated_and_formatted(self):
+        from test_forecast_descriptions import fixture,encoded
+        from forecast_catalog import read_forecast_catalog,forecast_description
+        rows=fixture()
+        rows[0]['forecasts']['day']['practical']='Synthetic practical action'
+        with patch.dict(os.environ,encoded(rows)):
+            read_forecast_catalog.cache_clear();text=forecast_description('day',1)
+            self.assertIn('Практичний орієнтир. Synthetic practical action',text)
+            result=bot.instagram_nickname_link('sendMessage',{'text':text})
+            self.assertEqual(len([e for e in result['entities'] if e['type']=='bold']),6)
+        rows[0]['forecasts']['day']['practical']=123
+        with patch.dict(os.environ,encoded(rows)):
+            read_forecast_catalog.cache_clear()
+            with self.assertRaises(ValueError):read_forecast_catalog()

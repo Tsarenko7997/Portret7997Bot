@@ -23,7 +23,9 @@ from compatibility_catalog import read_catalog
 class API:
     def __init__(self): self.messages=[]
     def say(self,cid,text,**extra): self.messages.append({'text':text,**extra})
-    def call(self,*args,**kwargs): return {}
+    def call(self,method,data=None,file=None):
+        if method=='sendPhoto': self.messages.append({'text':data.get('caption',''),**data,'photo':file})
+        return {}
 
 class CompatibilityTests(unittest.TestCase):
     def setUp(self):
@@ -31,7 +33,12 @@ class CompatibilityTests(unittest.TestCase):
         self.store=Store(Path(self.directory.name)/'state.sqlite3')
         self.api=API()
         self.store.set_current_birth(1,'16.09.1998')
+        self.position_patch=patch.object(bot,'compatibility_position',side_effect=lambda i:(f'Position meaning {i}','Synthetic meaning'))
+        self.position_patch.start()
+        self.image_patch=patch.object(bot,'draw_compatibility',return_value=b'synthetic image')
+        self.draw=self.image_patch.start()
     def tearDown(self):
+        self.image_patch.stop();self.position_patch.stop()
         self.store.close(); self.directory.cleanup()
     def message(self,text,cid=1):
         bot.handle(self.api,{'message':{'chat':{'type':'private','id':cid},'from':{'id':cid},'text':text}},self.store,Prices('',''))
@@ -53,7 +60,8 @@ class CompatibilityTests(unittest.TestCase):
         self.message('/compatibility'); self.message('14.11.1948'); self.message('01.07.1961')
         self.assertEqual(self.store.compatibility_dates(1),['14.11.1948','01.07.1961'])
         self.assertEqual(self.store.current_birth(1),'16.09.1998')
-        self.assertIn('С8: 20',self.api.messages[-1]['text'])
+        self.assertEqual(self.draw.call_args.args[2][-1][-1],20)
+        self.assertIn('photo',self.api.messages[-1])
     def test_two_dates_atomic_and_invalid_date_preserves_state(self):
         self.message('/compatibility'); self.message('14.11.1948\n01.07.1961')
         before=self.store.compatibility_dates(1)
@@ -89,7 +97,9 @@ class CompatibilityTests(unittest.TestCase):
         with patch.object(bot,'has_full_access',return_value=True),patch.object(bot,'compatibility_position',return_value=('Synthetic title','Synthetic meaning')),patch.object(bot,'compatibility_description',return_value='Synthetic reading'):
             self.callback('compat_position:4')
             self.assertIn('Synthetic meaning',self.api.messages[-1]['text'])
-            self.assertIn('П4 першої людини — 3',self.api.messages[-1]['text'])
+            self.assertNotIn('Складові позиції',self.api.messages[-1]['text'])
+            self.assertNotIn('Розрахунок:',self.api.messages[-1]['text'])
+            self.assertNotIn('→',self.api.messages[-1]['text'])
         self.callback('compat_position:4')
         self.assertNotIn('Synthetic meaning',self.api.messages[-1]['text'])
     def test_menu_and_callback_limits(self):
@@ -99,6 +109,12 @@ class CompatibilityTests(unittest.TestCase):
         rows=self.api.messages[-1]['reply_markup']['inline_keyboard']
         self.assertEqual(len([b for row in rows for b in row if b['callback_data'].startswith('compat_position:')]),8)
         self.assertTrue(all(len(b['callback_data'].encode())<=64 for row in rows for b in row))
+        self.assertEqual([len(r) for r in rows[:2]],[4,4])
+        self.assertEqual([b['text'] for row in rows[:2] for b in row],['🔒 '+str(i) for i in range(1,9)])
+        caption=self.api.messages[-1]['text']
+        for i in range(1,9):self.assertIn(f'С{i} · Position meaning {i}',caption)
+        for formula in ['→',' + ','Розрахунок:','Складові позиції']:self.assertNotIn(formula,caption)
+        self.assertLessEqual(len(caption.encode('utf-16-le'))//2,1024)
     def test_no_pair_callback_and_invalid_index(self):
         self.callback('compat_position:4')
         self.assertIn('першої людини',self.api.messages[-1]['text'])

@@ -13,7 +13,7 @@ from pathlib import Path
 from datetime import datetime
 from zoneinfo import ZoneInfo
 from portrait import calculate, calculate_karma, calculate_social, calculate_money, calculate_matrix, calculate_forecast, calculate_compatibility
-from render import draw_portrait, draw_karma, draw_matrix
+from render import draw_portrait, draw_karma, draw_matrix, draw_compatibility
 from catalog import POSITIONS, FREE, description, chunks, position_meaning, TELEGRAM_HANDLE, TELEGRAM_URL, INSTAGRAM_URL, CONTACTS
 from karma_catalog import negative_description, positive_description
 from money_catalog import money_description
@@ -241,14 +241,27 @@ def show_compatibility(api,cid,store):
         return
     rows = calculate_compatibility(*dates)
     active = has_full_access(store,cid)
-    text = 'Сумісність · '+dates[0]+' та '+dates[1]+'\n\n'
-    text += '\n'.join(f'С{i}: {value}  ({a} + {b} → {value})' for i,a,b,value in rows)
-    text += '\n\nОберіть позицію, щоб прочитати, що вона описує.'
-    if not active: text += '\n\n'+LOCKED_DESCRIPTION
-    text += '\n\n'+CONTACTS
-    buttons = [[{'text':('' if active else '🔒 ')+f'С{i} · {value}',
-                 'callback_data':f'compat_position:{i}'}] for i,a,b,value in rows]
-    api.say(cid,text,reply_markup={'inline_keyboard':buttons+compatibility_navigation()})
+    caption = 'Сумісність · '+dates[0]+' та '+dates[1]+'\n\n'
+    try:
+        caption += '\n'.join(f'С{i} · '+compatibility_position(i)[0] for i in range(1,9))
+    except (ValueError,KeyError,TypeError):
+        caption += 'Пояснення позицій тимчасово недоступні.'
+    caption += '\n\nНатисніть номер позиції нижче, щоб відкрити її опис.'
+    if not active: caption += '\n\n'+LOCKED_DESCRIPTION
+    caption += '\n\n'+CONTACTS
+    buttons = [{'text':('' if active else '🔒 ')+str(i),
+                'callback_data':f'compat_position:{i}'} for i in range(1,9)]
+    keyboard = [buttons[:4],buttons[4:]]+compatibility_navigation()
+    # Send a photo with a short position key; reserve long catalogs for text messages.
+    if len(caption.encode('utf-16-le'))//2 <= 1024:
+        api.call('sendPhoto',{'chat_id':cid,'caption':caption,
+                 'reply_markup':{'inline_keyboard':keyboard}},
+                 ('photo',draw_compatibility(*dates,rows),'compatibility.png'))
+    else:
+        api.call('sendPhoto',{'chat_id':cid,'caption':'Сумісність · '+dates[0]+' та '+dates[1]},
+                 ('photo',draw_compatibility(*dates,rows),'compatibility.png'))
+        for part in chunks(caption):
+            api.say(cid,part,reply_markup={'inline_keyboard':keyboard})
 
 
 def show_compatibility_position(api,cid,number,store):
@@ -269,8 +282,7 @@ def show_compatibility_position(api,cid,number,store):
         return
     text = (title+'\n'+dates[0]+' та '+dates[1]+f'\n\nС{i} · '+heading+'\n\n'+meaning+
             '\n\n'+body+
-            f'\n\nСкладові позиції: П{i} першої людини — {a}; П{i} другої — {b}.'+
-            f'\nРозрахунок: {a} + {b} → {value}.'+'\n\n'+CONTACTS)
+            '\n\n'+CONTACTS)
     api.say(cid,text,reply_markup={'inline_keyboard':[
         [{'text':'Повернутися до сумісності','callback_data':'section:compatibility'}]]+
         compatibility_navigation()})

@@ -114,15 +114,17 @@ SECTIONS = {
     'month':'Прогноз на місяці',
     'day':'Прогноз на день',
     'compatibility':'Сумісність',
+    'programs':'21 програма · Pro',
 }
 SECTION_ICONS = {'portrait':'👤','karma':'🔮','matrix':'🔢','money':'💰',
-                 'social':'👫','year':'📅','month':'📆','day':'📆','compatibility':'👩‍❤️‍👨'}
+                 'social':'👫','year':'📅','month':'📆','day':'📆','compatibility':'👩‍❤️‍👨','programs':'💎'}
 
 def main_menu():
     buttons = [{'text':SECTION_ICONS[key]+' '+label,
                 'callback_data':'section:'+key} for key,label in SECTIONS.items()]
     return {'inline_keyboard':[
-        [buttons[0]], buttons[1:3], buttons[3:5], buttons[5:7], [buttons[7]], [buttons[8]],
+        [buttons[0]], buttons[1:3], buttons[3:5], buttons[5:7], [buttons[7]], [buttons[8]], [buttons[9]],
+        [{'text':'Повний / Pro','callback_data':'packages'}],
         [{'text':'ℹ️ Інфо','callback_data':'info'}],
         [{'text':'Мій доступ','callback_data':'access'},
          {'text':'Написати в Telegram','url':TELEGRAM_URL}],
@@ -133,6 +135,40 @@ LOCKED_DESCRIPTION = ('🔒 Опис закритий. Повний доступ
 
 def has_full_access(store,cid):
     return store.membership_until(cid) > int(time.time())
+
+def has_pro_access(store,cid):
+    return store.pro_until(cid)>int(time.time())
+
+
+def show_packages(api,cid,selected=None):
+    intro=('Обрано пакет «'+('Pro' if selected=='pro' else 'Повний')+'».\n\n') if selected else ''
+    api.say(cid,intro+'Повний: усі 33 позиції портрету та готові розділи бота, окрім 21 програми.\n\n'
+                'Pro: усе з пакета «Повний» плюс доступ до 21 програми, у кожній по 6 питань. '
+                'Розрахунки й описи програм ще готуються.\n\n'
+                'Доступ персональний, на один календарний місяць від активації. '
+                'Для отримання запрошення та уточнення умов напишіть '+SUPPORT+'.',
+            reply_markup={'inline_keyboard':[
+                [{'text':'Повний','callback_data':'package:full'},{'text':'Pro','callback_data':'package:pro'}],
+                [{'text':'Написати Надії','url':TELEGRAM_URL}],
+                [{'text':'Мій доступ','callback_data':'access'},{'text':'Головне меню','callback_data':'home'}]]})
+
+
+def show_programs(api,cid,store):
+    # Every current and future program route must check the server-side Pro grant first.
+    if not has_pro_access(store,cid):
+        api.say(cid,'🔒 21 програма доступна лише в пакеті Pro.\n\n'
+                    'Пакет «Повний» відкриває інші готові розділи бота. '
+                    'Для Pro потрібне окреме персональне запрошення від Надії.\n\n'
+                    'Розрахунки й описи програм ще готуються.',
+                reply_markup={'inline_keyboard':[[{'text':'Пакети Повний / Pro','callback_data':'packages'}],
+                    [{'text':'Написати Надії','url':TELEGRAM_URL}],[{'text':'Головне меню','callback_data':'home'}]]})
+        return
+    api.say(cid,'21 програма · Pro\n\nДоступ Pro активний. '
+                'Розділ із 21 програмою та 6 питаннями в кожній ще готується. '
+                'Назви, формули й персональні описи буде додано після перевірки матеріалів.',
+            reply_markup={'inline_keyboard':[[{'text':'Мій доступ','callback_data':'access'}],
+                [{'text':'Головне меню','callback_data':'home'}]]})
+
 
 def locked_button(section,active):
     return [] if active else [[{'text':'🔒 Відкрити опис','callback_data':'locked:'+section}]]
@@ -160,6 +196,9 @@ WELCOME = (
     '• <b>Прогноз на місяць:</b> аркани для 24 місяців та їхні тлумачення.\n'
     '• <b>Прогноз на день:</b> аркани для 31 дня та їхні тлумачення.\n\n'
     '• <b>Сумісність:</b> любовна, загальна та батьківська; 8 позицій за двома датами народження.\n\n'
+    '💎 <b>Пакети доступу</b>\n\n'
+    '<b>Повний:</b> усі готові розділи, окрім 21 програми. '
+    '<b>Pro:</b> усе з повного пакета плюс 21 програма з 6 питаннями в кожній. Розділ програм ще готується.\n\n'
     '🔓 <b>Що доступно безкоштовно?</b>\n\n'
     'Розрахунки та перегляд отриманих чисел і арканів у готових розділах. '
     '<b>Описи 21 і 30 позицій особистого портрета</b> також відкриті для знайомства.\n\n'
@@ -192,6 +231,9 @@ def show_home(api,cid,store):
 def show_section(api,cid,key,store,prices):
     if key not in SECTIONS: return
     birth = store.current_birth(cid)
+    if key == 'programs':
+        store.set_section(cid,key)
+        show_programs(api,cid,store);return
     if key == 'compatibility':
         store.set_section(cid,key)
         show_compatibility_types(api,cid,store)
@@ -527,9 +569,11 @@ TERMS = (
     'Точний строк відображається в /access за київським часом. Повторне відкриття посилання '
     'не починає новий місяць. Посилання можна активувати протягом 7 днів. '
     'Автор може відкликати доступ. Після завершення строку позиції 21 і 30 залишаються відкритими. '
-    'Продовження повного доступу: 100 грн на місяць. Для продовження напишіть @lakshmi_775 '
+    'Продовження пакета «Повний»: 100 грн на місяць. Для продовження напишіть @lakshmi_775 '
     'та вкажіть свій Telegram ID із /myid. Автор продовжує доступ вручну після перевірки звернення. '
     'Бот не приймає платежів за продовження, не перевіряє банківські перекази та не списує коштів.\n\n'
+    'Пакет «Повний» не включає 21 програму. Пакет Pro включає всі розділи, у тому числі 21 програму; розділ програм ще готується. '
+    'Підвищення чинного доступу до Pro через запрошення не починає новий місяць.\n\n'
     'Умови попередніх окремих покупок, якщо вони були:\n'
     'Ви купуєте текст опису позиції для зазначеної дати народження у своєму Telegram акаунті. '
     'Одна позиція відкриває лише її опис і Ваш аркан. П15 включає обидва результати. '
@@ -555,13 +599,24 @@ def access_text(store,cid):
     until = store.membership_until(cid)
     if until > int(time.time()):
         end = datetime.fromtimestamp(until,ZoneInfo('Europe/Kyiv')).strftime('%d.%m.%Y о %H:%M')
-        return ('Усі 33 позиції портрету та готові описи інших розділів відкриті для необмеженої кількості дат народження.\n'
+        if has_pro_access(store,cid):
+            pro_end=datetime.fromtimestamp(store.pro_until(cid),ZoneInfo('Europe/Kyiv')).strftime('%d.%m.%Y о %H:%M')
+            return ('Пакет Pro активний до '+pro_end+' за київським часом.\n\n'
+                    'Відкрито всі готові розділи та рівень доступу до 21 програми. Розділ програм ще готується.\n'
+                    'Базовий доступ до інших розділів діє до '+end+'.\n\n'
+                    'Для продовження Pro напишіть '+SUPPORT+'.')
+        return ('Пакет «Повний». 21 програма доступна окремо в Pro.\n\n'
+                'Усі 33 позиції портрету та готові описи інших розділів відкриті для необмеженої кількості дат народження.\n'
                 'Повний доступ діє до '+end+' за київським часом.\n\n'
                 'Надішліть будь-яку дату у форматі ДД.ММ.РРРР.')
     if store.had_membership(cid):
+        if store.had_pro(cid):
+            return ('Доступ Pro завершився.\n\nДля продовження Pro напишіть '+SUPPORT+' та вкажіть свій Telegram ID: '+str(cid)+'.\n'
+                    'Позиції 21 і 30 залишаються безкоштовними.')
         return ('Ваш місяць повного доступу завершився.\n\n'
                 'Повний доступ до всіх позицій: 100 грн на місяць.\n'
-                'Після продовження Вам будуть доступні всі 33 позиції, готові описи інших розділів та необмежена кількість дат.\n\n'
+                'Після продовження Вам будуть доступні всі 33 позиції, готові описи інших розділів та необмежена кількість дат. '
+                '21 програма входить лише в Pro.\n\n'
                 'Щоб продовжити користування, напишіть '+SUPPORT+' у приватні повідомлення. '
                 'Автор продовжить Ваш доступ вручну.\n'
                 f'Ваш Telegram ID: {cid}\n\n'
@@ -655,36 +710,45 @@ def handle_invitation(api, msg, cid, store, prices):
     command = args[0].split('@')[0] if args else ''
     if command == '/myid':
         api.say(cid,f'Ваш Telegram ID: {cid}'); return True
-    if command in ('/invite','/revoke','/renew'):
+    if command in ('/invite','/invitepro','/revoke','/renew','/renewpro'):
         owner = os.getenv('BOT_OWNER_ID','')
         if not owner.isdigit() or int(owner) != cid:
             api.say(cid,'Ця команда доступна лише власнику бота.'); return True
         try:
-            if command == '/renew':
+            if command in ('/renew','/renewpro'):
                 if len(args) != 2 or not args[1].isascii() or not args[1].isdigit() or int(args[1]) <= 0:
-                    api.say(cid,'Продовження доступу на місяць:\n/renew TELEGRAM_ID\n\n'
+                    api.say(cid,'Продовження доступу на місяць:\n/renew TELEGRAM_ID — зберегти пакет\n/renewpro TELEGRAM_ID — продовжити з Pro\n\n'
                         'Попросіть людину надіслати свій ID із /myid або повідомлення про завершення доступу. '
                         'Продовжуйте після того, як самостійно перевірите звернення.'); return True
                 mid = msg.get('message_id')
                 if not isinstance(mid,int) or mid <= 0:
                     raise PaymentError('Надішліть команду продовження новим повідомленням.')
                 uid = int(args[1])
-                until = store.extend_membership(cid,uid,f'renew:{cid}:{mid}')
+                until = store.extend_membership(cid,uid,f'{command[1:]}:{cid}:{mid}',tier='pro' if command=='/renewpro' else None)
                 end = datetime.fromtimestamp(until,ZoneInfo('Europe/Kyiv')).strftime('%d.%m.%Y о %H:%M')
                 api.say(cid,f'Доступ акаунту {uid} продовжено до {end} за київським часом.\n'
                     'Відкрито всі 33 позиції для необмеженої кількості дат. '
-                    'Користувач може перевірити строк через /access.'); return True
-            if command == '/invite':
+                    'Користувач може перевірити пакет і строк через /access.\n'
+                    +('Пакет Pro.' if store.membership_tier(uid)=='pro' else 'Пакет «Повний» (без 21 програми).')); return True
+            if command in ('/invite','/invitepro'):
                 if len(args) != 2:
-                    api.say(cid,'Створення запрошення:\n/invite +380XXXXXXXXX\n\n'
-                        'Вкажіть номер, прив’язаний до Telegram отримувача. Запрошення відкриває '
-                        'всі 33 позиції для необмеженої кількості дат на один календарний місяць від активації.'); return True
-                iid, token = store.create_invitation(cid,args[1])
+                    api.say(cid,'Створення запрошення:\n'
+                        '/invite +380XXXXXXXXX — Повний (без 21 програми)\n'
+                        '/invitepro +380XXXXXXXXX — Pro (усі розділи)\n\n'
+                        'Вкажіть номер, прив’язаний до Telegram отримувача. Перше запрошення діє один календарний місяць від активації. '
+                        'Pro-запрошення для чинного користувача підвищує пакет без подовження строку.\n\n'
+                        'Продовження: /renew TELEGRAM_ID; з переходом на Pro: /renewpro TELEGRAM_ID.');return True
+                tier='pro' if command=='/invitepro' else 'full'
+                iid, token = store.create_invitation(cid,args[1],tier=tier)
                 username = api.call('getMe')['username']
-                api.say(cid,'Персональне запрошення на місяць повного доступу\n\n'
+                label='Pro' if tier=='pro' else 'Повний'
+                details=('Усі розділи та доступ до 21 програми (розділ готується).' if tier=='pro' else
+                         'Усі готові розділи, окрім 21 програми.')
+                api.say(cid,'Персональне запрошення · '+label+'\n\n'+details+'\n\n'
                     f'https://t.me/{username}?start=gift_{token}\n\n'
                     'Активувати можна протягом 7 днів, тільки з підтвердженим номером отримувача. '
-                    'Після активації відкриваються всі позиції для необмеженої кількості дат на один місяць.\n'
+                    'Для нового користувача доступ діє один місяць від активації. '
+                    'Підвищення до Pro зберігає чинний строк.\n'
                     f'Відкликати запрошення або вже відкритий ним доступ:\n/revoke {iid}',
                     link_preview_options={'is_disabled':True})
             else:
@@ -813,6 +877,12 @@ def handle(api, update, store, prices):
                 if store.compatibility_kind(cid) is None:store.set_compatibility_kind(cid,kind)
                 show_compatibility_position(api,cid,int(number),store)
             return
+        if action == 'packages':show_packages(api,cid);return
+        if action == 'package':
+            if len(args)==2 and args[1] in ('full','pro'):show_packages(api,cid,args[1])
+            return
+        if action in ('program','program_question','programs'):
+            show_programs(api,cid,store);return
         if action == 'access': show_access(api,cid,store); return
         if action == 'purchases': show_purchases(api,cid,store); return
         if action == 'money_name':
@@ -872,6 +942,8 @@ def handle(api, update, store, prices):
         show_home(api,cid,store); return
     if command in ('/year','/month','/day'):
         show_section(api,cid,command[1:],store,prices); return
+    if command == '/packages':show_packages(api,cid);return
+    if command == '/programs':show_section(api,cid,'programs',store,prices);return
     if command == '/compatibility': show_section(api,cid,'compatibility',store,prices); return
     if command == '/portrait': show_section(api,cid,'portrait',store,prices); return
     if command == '/karma': show_section(api,cid,'karma',store,prices); return
@@ -900,12 +972,14 @@ def handle(api, update, store, prices):
             'Для сумісності зберігаються обраний тип і дві введені дати. Кнопка «Інша пара» очищує їх; /forgetdate також видаляє їх. '
             'Обраний розділ зберігається для Вашого акаунту. Повідомлення та результати залишаються в історії чату Telegram. '
             'Для персональних запрошень зберігаються захищений відбиток номера телефону, '
-            'строк доступу, Telegram ID після активації та стан запрошення. '
+            'пакет і строк доступу, Telegram ID після активації та стан запрошення. '
             'Сам номер у базі бота не зберігається. Контакт залишається у Вашій історії чату Telegram. '
             'Ручні продовження записуються з Telegram ID автора й отримувача та попереднім і новим строком доступу. '
             'Дані банківської картки бот не отримує. Питання щодо даних: '+SUPPORT+'.'); return
     if command == '/purchases': show_purchases(api,cid,store); return
     if command == '/access': show_access(api,cid,store); return
+    if store.section(cid) == 'programs':
+        show_programs(api,cid,store);return
     if store.section(cid) == 'compatibility':
         receive_compatibility_dates(api,cid,text,store); return
     try: calculated,_ = calculate(text)
@@ -955,7 +1029,7 @@ def main():
     api.call('getMe')
     if api.call('getWebhookInfo').get('url'):
         raise SystemExit('У бота вже налаштований webhook. Вимкніть його перед запуском polling.')
-    commands = [('start','Головне меню'),('menu','Розділи бота'),('info','Про бота та консультації'),('portrait','Портрет'),('karma','Карма +/−'),('social','Соціальне призначення'),('money','Грошове призначення'),('matrix','Матриця'),('year','Прогноз на роки'),('month','Прогноз на місяці'),('day','Прогноз на день'),('compatibility','Сумісність'),('forgetdate','Видалити поточну дату'),('access','Мій доступ'),('purchases','Попередні покупки'),('myid','Мій Telegram ID'),('terms','Умови покупки'),
+    commands = [('start','Головне меню'),('menu','Розділи бота'),('info','Про бота та консультації'),('portrait','Портрет'),('karma','Карма +/−'),('social','Соціальне призначення'),('money','Грошове призначення'),('matrix','Матриця'),('year','Прогноз на роки'),('month','Прогноз на місяці'),('day','Прогноз на день'),('compatibility','Сумісність'),('packages','Пакети Повний / Pro'),('programs','21 програма · Pro'),('forgetdate','Видалити поточну дату'),('access','Мій доступ'),('purchases','Попередні покупки'),('myid','Мій Telegram ID'),('terms','Умови покупки'),
                 ('paysupport','Допомога з оплатою'),('privacy','Обробка даних')]
     api.call('setMyCommands',{'commands':[{'command':c,'description':d} for c,d in commands]})
     offset = store.offset()

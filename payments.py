@@ -86,6 +86,12 @@ class Store:
         columns = {r[1] for r in self.db.execute('PRAGMA table_info(invitations)')}
         if 'access_until' not in columns:
             self.db.execute('ALTER TABLE invitations ADD COLUMN access_until INTEGER')
+        if 'tier' not in columns:
+            self.db.execute("ALTER TABLE invitations ADD COLUMN tier TEXT NOT NULL DEFAULT 'full' CHECK(tier IN ('full','pro'))")
+        extension_columns={r[1] for r in self.db.execute('PRAGMA table_info(access_extensions)')}
+        for column in ('previous_tier','new_tier'):
+            if column not in extension_columns:
+                self.db.execute(f"ALTER TABLE access_extensions ADD COLUMN {column} TEXT NOT NULL DEFAULT 'full'")
         # Existing invitations adopt the monthly policy from their original activation time.
         with self.db:
             for row in self.db.execute('SELECT id,redeemed FROM invitations WHERE redeemed IS NOT NULL AND access_until IS NULL').fetchall():
@@ -196,15 +202,16 @@ class Store:
     def _token_hash(token):
         return hashlib.sha256(token.encode()).hexdigest()
 
-    def create_invitation(self, owner_id, phone, birth_date='', now=None):
+    def create_invitation(self, owner_id, phone, birth_date='', now=None, tier='full'):
         # birth_date remains a compatibility argument; new grants cover all dates.
         now = int(time.time()) if now is None else now
+        if tier not in ('full','pro'): raise PaymentError('Невідомий пакет доступу.')
         phone_hash = self._phone_hash(phone)
         token, iid = secrets.token_urlsafe(24), secrets.token_hex(6)
         with self.db:
             self.db.execute('''INSERT INTO invitations
-                (id,token_hash,phone_hash,birth_date,created_by,expires) VALUES (?,?,?,?,?,?)''',
-                (iid,self._token_hash(token),phone_hash,'',owner_id,now+7*86400))
+                (id,token_hash,phone_hash,birth_date,created_by,expires,tier) VALUES (?,?,?,?,?,?,?)''',
+                (iid,self._token_hash(token),phone_hash,'',owner_id,now+7*86400,tier))
         return iid, token
 
     def begin_invitation(self, user_id, token, now=None):
@@ -241,11 +248,17 @@ class Store:
             # A second unredeemed link must not restart the free month for an existing member.
             prior = self.db.execute('SELECT 1 FROM invitations WHERE user_id=? AND redeemed IS NOT NULL AND id<>?',
                                     (user_id,row['id'])).fetchone()
+            grant_until=next_month(now)
             if prior and row['user_id'] is None:
-                raise PaymentError('Ваш пробний місяць уже активовано раніше. Перевірте /access.')
+                current_until=self.membership_until(user_id)
+                if row['tier']=='pro' and current_until>now and self.pro_until(user_id)<=now:
+                    # A confirmed Pro invitation upgrades only the remaining paid period.
+                    grant_until=current_until
+                else:
+                    raise PaymentError('Ваш пробний місяць уже активовано раніше. Перевірте /access. Для продовження зверніться до автора.')
             self.db.execute('''UPDATE invitations SET user_id=?, redeemed=COALESCE(redeemed,?),
                 access_until=COALESCE(access_until,?) WHERE id=?''',
-                (user_id,now,next_month(now),row['id']))
+                (user_id,now,grant_until,row['id']))
             self.db.execute('DELETE FROM invitation_pending WHERE user_id=?', (user_id,))
             self.db.commit()
             return ''
@@ -262,16 +275,29 @@ class Store:
             WHERE user_id=? AND redeemed IS NOT NULL AND revoked IS NULL''',(user_id,)).fetchone()
         return row[0] or 0
 
+    def pro_until(self,user_id):
+        row=self.db.execute('''SELECT MAX(access_until) FROM invitations
+            WHERE user_id=? AND tier='pro' AND redeemed IS NOT NULL AND revoked IS NULL''',(user_id,)).fetchone()
+        return row[0] or 0
+
+    def membership_tier(self,user_id,now=None):
+        now=int(time.time()) if now is None else now
+        if self.pro_until(user_id)>now:return 'pro'
+        return 'full' if self.membership_until(user_id)>now else None
+
+    def had_pro(self,user_id):
+        return bool(self.db.execute("SELECT 1 FROM invitations WHERE user_id=? AND tier='pro' AND redeemed IS NOT NULL",(user_id,)).fetchone())
+
     def had_membership(self, user_id):
         return bool(self.db.execute('SELECT 1 FROM invitations WHERE user_id=? AND redeemed IS NOT NULL',
                                    (user_id,)).fetchone())
 
     def section(self,user_id):
         row = self.db.execute('SELECT value FROM state WHERE key=?',('section:'+str(user_id),)).fetchone()
-        return row[0] if row and row[0] in ('portrait','karma','social','money','matrix','year','month','day','compatibility') else 'portrait'
+        return row[0] if row and row[0] in ('portrait','karma','social','money','matrix','year','month','day','compatibility','programs') else 'portrait'
 
     def set_section(self,user_id,section):
-        if section not in ('portrait','karma','social','money','matrix','year','month','day','compatibility'): raise ValueError('Unknown section')
+        if section not in ('portrait','karma','social','money','matrix','year','month','day','compatibility','programs'): raise ValueError('Unknown section')
         with self.db:
             self.db.execute('INSERT OR REPLACE INTO state VALUES (?,?)',('section:'+str(user_id),section))
 
@@ -329,29 +355,37 @@ class Store:
         with self.db:
             self.db.execute('DELETE FROM state WHERE key=?',('money_name:'+str(user_id),))
 
-    def extend_membership(self, owner_id, user_id, request_key, now=None):
+    def extend_membership(self, owner_id, user_id, request_key, now=None, tier=None):
         now = int(time.time()) if now is None else now
+        if tier not in (None,'pro'): raise PaymentError('Невідомий пакет продовження.')
         if not isinstance(user_id,int) or user_id <= 0 or not request_key:
             raise PaymentError('Вкажіть числовий Telegram ID отримувача.')
         self.db.execute('BEGIN IMMEDIATE')
         try:
             prior = self.db.execute('SELECT * FROM access_extensions WHERE request_key=?',(request_key,)).fetchone()
             if prior:
-                if prior['owner_id'] != owner_id or prior['user_id'] != user_id:
+                if prior['owner_id'] != owner_id or prior['user_id'] != user_id or (tier is not None and prior['new_tier']!=tier):
                     raise PaymentError('Цю команду вже виконано для іншого акаунту.')
                 self.db.commit()
                 return prior['access_until']
             row = self.db.execute('''SELECT * FROM invitations WHERE user_id=? AND created_by=?
-                AND redeemed IS NOT NULL AND revoked IS NULL ORDER BY access_until DESC LIMIT 1''',
-                (user_id,owner_id)).fetchone()
+                AND redeemed IS NOT NULL AND revoked IS NULL
+                ORDER BY CASE WHEN tier='pro' AND access_until>? THEN 0 ELSE 1 END,
+                         access_until DESC, CASE WHEN tier='pro' THEN 0 ELSE 1 END LIMIT 1''',
+                (user_id,owner_id,now)).fetchone()
             if not row:
                 raise PaymentError('Активованого запрошення для цього ID не знайдено або його відкликано. '
                                    'Перевірте ID. Новий користувач спочатку має активувати персональне запрошення.')
             previous = row['access_until'] or 0
-            until = next_month(max(previous,now))
-            self.db.execute('UPDATE invitations SET access_until=? WHERE id=?',(until,row['id']))
-            self.db.execute('INSERT INTO access_extensions VALUES (?,?,?,?,?,?,?)',
-                            (request_key,owner_id,user_id,row['id'],previous,until,now))
+            new_tier=tier or row['tier']
+            # Explicit Pro renewal also preserves all remaining base membership time.
+            basis=max(previous,self.membership_until(user_id)) if new_tier=='pro' else previous
+            until = next_month(max(basis,now))
+            self.db.execute('UPDATE invitations SET access_until=?,tier=? WHERE id=?',(until,new_tier,row['id']))
+            self.db.execute('''INSERT INTO access_extensions
+                (request_key,owner_id,user_id,invitation_id,previous_until,access_until,created,previous_tier,new_tier)
+                VALUES (?,?,?,?,?,?,?,?,?)''',
+                (request_key,owner_id,user_id,row['id'],previous,until,now,row['tier'],new_tier))
             self.db.commit()
             return until
         except Exception:

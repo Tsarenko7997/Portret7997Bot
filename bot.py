@@ -12,13 +12,14 @@ import urllib.error
 from pathlib import Path
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from portrait import calculate, calculate_karma, calculate_social, calculate_money, calculate_matrix, calculate_forecast, calculate_compatibility
-from render import draw_portrait, draw_karma, draw_matrix, draw_compatibility
+from portrait import calculate, calculate_karma, calculate_social, calculate_money, calculate_matrix, calculate_forecast, calculate_compatibility, calculate_program
+from render import draw_portrait, draw_karma, draw_matrix, draw_compatibility, draw_program
 from catalog import POSITIONS, FREE, description, chunks, position_meaning, TELEGRAM_HANDLE, TELEGRAM_URL, INSTAGRAM_URL, CONTACTS
 from karma_catalog import negative_description, positive_description
 from money_catalog import money_description
 from forecast_catalog import forecast_description
 from compatibility_catalog import compatibility_position, compatibility_description
+from program_catalog import read_program_catalog, program_entry, program_description
 from payments import Store, Prices, PaymentError
 
 ROOT=Path(__file__).parent
@@ -56,10 +57,10 @@ def instagram_nickname_link(method,data):
         result += TELEGRAM_HANDLE+suffix
     # Apply after shortening the URL, so all offsets refer to the final text.
     headings = (r'(?m)^(?:Позиція |Плюсова карма · |Мінусова карма · |'
-                r'Сумісність · |С[1-8] · |Грошове призначення · |Прогноз на рік · |Прогноз на місяць · |Прогноз на день · |Аркан \d+ |Ваш аркан грошового призначення: )[^\n]+|'
+                r'Програма \d+ · |Питання \d+ · |Сумісність · |С[1-8] · |Грошове призначення · |Прогноз на рік · |Прогноз на місяць · |Прогноз на день · |Аркан \d+ |Ваш аркан грошового призначення: )[^\n]+|'
                 r'^(?:Позитивні прояви|Можливі труднощі|Внутрішні установки та блоки|'
                 r'Кармічна тема|Внутрішні блоки|Сильні сторони|Ваш ресурс|Можливі прояви|'
-                r'Що може послаблювати ресурс|Ваш акцент|Практичний орієнтир|Ключові слова|Загальний опис|Позитивні події)(?=\. )|'
+                r'Що може послаблювати ресурс|Ваш акцент|Відповідь|Практичний орієнтир|Ключові слова|Загальний опис|Позитивні події)(?=\. )|'
                 r'^(?:Карма|Позитивна карма|Негативна карма)(?=: )')
     for match in re.finditer(headings,result):
         entities.append({'type':'bold','offset':len(result[:match.start()].encode('utf-16-le'))//2,
@@ -114,10 +115,10 @@ SECTIONS = {
     'month':'Прогноз на місяці',
     'day':'Прогноз на день',
     'compatibility':'Сумісність',
-    'programs':'21 програма · Pro',
+    'programs':'21 програма',
 }
 SECTION_ICONS = {'portrait':'👤','karma':'🔮','matrix':'🔢','money':'💰',
-                 'social':'👫','year':'📅','month':'📆','day':'📆','compatibility':'👩‍❤️‍👨','programs':'💎'}
+                 'social':'👫','year':'📅','month':'📆','day':'📆','compatibility':'👩‍❤️‍👨','programs':'🧩'}
 
 def main_menu():
     buttons = [{'text':SECTION_ICONS[key]+' '+label,
@@ -144,7 +145,7 @@ def show_packages(api,cid,selected=None):
     intro=('Обрано пакет «'+('Pro' if selected=='pro' else 'Повний')+'».\n\n') if selected else ''
     api.say(cid,intro+'Повний: усі 33 позиції портрету та готові розділи бота, окрім 21 програми.\n\n'
                 'Pro: усе з пакета «Повний» плюс доступ до 21 програми, у кожній по 6 питань. '
-                'Розрахунки й описи програм ще готуються.\n\n'
+                'Розрахунок, схема й відповіді на всі 6 запитань доступні в кожній програмі.\n\n'
                 'Доступ персональний, на один календарний місяць від активації. '
                 'Для отримання запрошення та уточнення умов напишіть '+SUPPORT+'.',
             reply_markup={'inline_keyboard':[
@@ -153,21 +154,72 @@ def show_packages(api,cid,selected=None):
                 [{'text':'Мій доступ','callback_data':'access'},{'text':'Головне меню','callback_data':'home'}]]})
 
 
+def program_guard(api,cid,store):
+    # Recheck every callback, including buttons from an expired/revoked session.
+    if has_pro_access(store,cid):return True
+    api.say(cid,'🔒 21 програма доступна лише в пакеті Pro.\n\n'
+                'Для Pro потрібне окреме персональне запрошення від Надії.',
+            reply_markup={'inline_keyboard':[[{'text':'Пакети Повний / Pro','callback_data':'packages'}],
+                [{'text':'Написати Надії','url':TELEGRAM_URL}],[{'text':'Головне меню','callback_data':'home'}]]})
+    return False
+
+
+def program_unavailable(api,cid):
+    api.say(cid,'Не вдалося відкрити описи програм. Спробуйте пізніше або напишіть '+SUPPORT+'.',
+            reply_markup={'inline_keyboard':[[{'text':'Головне меню','callback_data':'home'}]]})
+
+
 def show_programs(api,cid,store):
-    # Every current and future program route must check the server-side Pro grant first.
-    if not has_pro_access(store,cid):
-        api.say(cid,'🔒 21 програма доступна лише в пакеті Pro.\n\n'
-                    'Пакет «Повний» відкриває інші готові розділи бота. '
-                    'Для Pro потрібне окреме персональне запрошення від Надії.\n\n'
-                    'Розрахунки й описи програм ще готуються.',
-                reply_markup={'inline_keyboard':[[{'text':'Пакети Повний / Pro','callback_data':'packages'}],
-                    [{'text':'Написати Надії','url':TELEGRAM_URL}],[{'text':'Головне меню','callback_data':'home'}]]})
-        return
-    api.say(cid,'21 програма · Pro\n\nДоступ Pro активний. '
-                'Розділ із 21 програмою та 6 питаннями в кожній ще готується. '
-                'Назви, формули й персональні описи буде додано після перевірки матеріалів.',
-            reply_markup={'inline_keyboard':[[{'text':'Мій доступ','callback_data':'access'}],
-                [{'text':'Головне меню','callback_data':'home'}]]})
+    if not program_guard(api,cid,store):return
+    store.set_section(cid,'programs');store.set_program_selection(cid,None)
+    try:entries=read_program_catalog()['programs']
+    except (ValueError,KeyError,lzma.LZMAError):program_unavailable(api,cid);return
+    text='🧩 21 програма\n\nПрограми:\n\n'+'\n\n'.join(
+        f"{n} — {entries[str(n)]['title']}\n{entries[str(n)]['overview']}" for n in range(1,22))
+    text+='\n\nОберіть програму нижче. У кожній — 6 запитань і Ваші аркани відповідей.'
+    buttons=[{'text':str(n),'callback_data':f'program:{n}'} for n in range(1,22)]
+    rows=[buttons[i:i+7] for i in range(0,21,7)]+[[{'text':'Головне меню','callback_data':'home'}]]
+    parts=list(chunks(text))
+    for i,part in enumerate(parts):api.say(cid,part,**({'reply_markup':{'inline_keyboard':rows}} if i==len(parts)-1 else {}))
+
+
+def program_navigation(program):
+    buttons=[{'text':str(n),'callback_data':f'program_question:{program}:{n}'} for n in range(1,7)]
+    return {'inline_keyboard':[buttons[:3],buttons[3:],
+        [{'text':'Схема та запитання','callback_data':f'program:{program}'}],
+        [{'text':'🧩 Усі 21 програма','callback_data':'programs'}],
+        [{'text':'Головне меню','callback_data':'home'}]]}
+
+
+def show_program(api,cid,number,store):
+    if not program_guard(api,cid,store):return
+    store.set_section(cid,'programs');store.set_program_selection(cid,number)
+    birth=store.current_birth(cid)
+    if not birth:
+        api.say(cid,'Для розрахунку програми надішліть дату народження у форматі ДД.ММ.РРРР. Наприклад: 16.09.1998.');return
+    try:
+        entry=program_entry(number);values=calculate_program(birth,number)
+    except (ValueError,KeyError,lzma.LZMAError):program_unavailable(api,cid);return
+    api.call('sendPhoto',{'chat_id':cid,'caption':f'Програма {number} · '+entry['title']+'\nДата народження: '+birth},
+             ('photo',draw_program(birth,number,entry['title'],values),'program.png'))
+    text=f'Програма {number} · '+entry['title']+'\n\n'+entry['overview']+'\n\n'+'\n\n'.join(
+        f"{i} — {q['question']}" for i,q in enumerate(entry['questions'],1))
+    text+='\n\nНатисніть номер запитання, щоб прочитати відповідь. Щоб змінити дату народження, надішліть нову дату.'
+    parts=list(chunks(text))
+    for i,part in enumerate(parts):api.say(cid,part,**({'reply_markup':program_navigation(number)} if i==len(parts)-1 else {}))
+
+
+def show_program_question(api,cid,number,question,store):
+    if not program_guard(api,cid,store):return
+    if not store.current_birth(cid):show_program(api,cid,number,store);return
+    store.set_section(cid,'programs');store.set_program_selection(cid,number)
+    birth=store.current_birth(cid)
+    try:
+        values=calculate_program(birth,number)
+        text=program_description(number,question,values[question])+'\n\nДата народження: '+birth+'\n\n'+CONTACTS
+    except (ValueError,KeyError,lzma.LZMAError):program_unavailable(api,cid);return
+    parts=list(chunks(text))
+    for i,part in enumerate(parts):api.say(cid,part,**({'reply_markup':program_navigation(number)} if i==len(parts)-1 else {}))
 
 
 def locked_button(section,active):
@@ -198,7 +250,7 @@ WELCOME = (
     '• <b>Сумісність:</b> любовна, загальна та батьківська; 8 позицій за двома датами народження.\n\n'
     '💎 <b>Пакети доступу</b>\n\n'
     '<b>Повний:</b> усі готові розділи, окрім 21 програми. '
-    '<b>Pro:</b> усе з повного пакета плюс 21 програма з 6 питаннями в кожній. Розділ програм ще готується.\n\n'
+    '<b>Pro:</b> усе з повного пакета плюс 21 програма з 6 питаннями в кожній.\n\n'
     '🔓 <b>Що доступно безкоштовно?</b>\n\n'
     'Розрахунки та перегляд отриманих чисел і арканів у готових розділах. '
     '<b>Описи 21 і 30 позицій особистого портрета</b> також відкриті для знайомства.\n\n'
@@ -572,7 +624,7 @@ TERMS = (
     'Продовження пакета «Повний»: 100 грн на місяць. Для продовження напишіть @lakshmi_775 '
     'та вкажіть свій Telegram ID із /myid. Автор продовжує доступ вручну після перевірки звернення. '
     'Бот не приймає платежів за продовження, не перевіряє банківські перекази та не списує коштів.\n\n'
-    'Пакет «Повний» не включає 21 програму. Пакет Pro включає всі розділи, у тому числі 21 програму; розділ програм ще готується. '
+    'Пакет «Повний» не включає 21 програму. Пакет Pro включає всі розділи, у тому числі 21 програму. '
     'Підвищення чинного доступу до Pro через запрошення не починає новий місяць.\n\n'
     'Умови попередніх окремих покупок, якщо вони були:\n'
     'Ви купуєте текст опису позиції для зазначеної дати народження у своєму Telegram акаунті. '
@@ -602,7 +654,7 @@ def access_text(store,cid):
         if has_pro_access(store,cid):
             pro_end=datetime.fromtimestamp(store.pro_until(cid),ZoneInfo('Europe/Kyiv')).strftime('%d.%m.%Y о %H:%M')
             return ('Пакет Pro активний до '+pro_end+' за київським часом.\n\n'
-                    'Відкрито всі готові розділи та рівень доступу до 21 програми. Розділ програм ще готується.\n'
+                    'Відкрито всі готові розділи та рівень доступу до 21 програми.\n'
                     'Базовий доступ до інших розділів діє до '+end+'.\n\n'
                     'Для продовження Pro напишіть '+SUPPORT+'.')
         return ('Пакет «Повний». 21 програма доступна окремо в Pro.\n\n'
@@ -742,7 +794,7 @@ def handle_invitation(api, msg, cid, store, prices):
                 iid, token = store.create_invitation(cid,args[1],tier=tier)
                 username = api.call('getMe')['username']
                 label='Pro' if tier=='pro' else 'Повний'
-                details=('Усі розділи та доступ до 21 програми (розділ готується).' if tier=='pro' else
+                details=('Усі розділи та доступ до 21 програми.' if tier=='pro' else
                          'Усі готові розділи, окрім 21 програми.')
                 api.say(cid,'Персональне запрошення · '+label+'\n\n'+details+'\n\n'
                     f'https://t.me/{username}?start=gift_{token}\n\n'
@@ -882,7 +934,13 @@ def handle(api, update, store, prices):
             if len(args)==2 and args[1] in ('full','pro'):show_packages(api,cid,args[1])
             return
         if action in ('program','program_question','programs'):
-            show_programs(api,cid,store);return
+            if not program_guard(api,cid,store):return
+            if action=='programs' and len(args)==1:show_programs(api,cid,store)
+            elif action=='program' and len(args)==2 and args[1] in tuple(map(str,range(1,22))):
+                show_program(api,cid,int(args[1]),store)
+            elif action=='program_question' and len(args)==3 and args[1] in tuple(map(str,range(1,22))) and args[2] in tuple(map(str,range(1,7))):
+                show_program_question(api,cid,int(args[1]),int(args[2]),store)
+            return
         if action == 'access': show_access(api,cid,store); return
         if action == 'purchases': show_purchases(api,cid,store); return
         if action == 'money_name':
@@ -978,8 +1036,6 @@ def handle(api, update, store, prices):
             'Дані банківської картки бот не отримує. Питання щодо даних: '+SUPPORT+'.'); return
     if command == '/purchases': show_purchases(api,cid,store); return
     if command == '/access': show_access(api,cid,store); return
-    if store.section(cid) == 'programs':
-        show_programs(api,cid,store);return
     if store.section(cid) == 'compatibility':
         receive_compatibility_dates(api,cid,text,store); return
     try: calculated,_ = calculate(text)
@@ -989,7 +1045,13 @@ def handle(api, update, store, prices):
             except ValueError as error: api.say(cid,str(error)); return
             show_money(api,cid,store.current_birth(cid),store); return
         api.say(cid,str(e)); return
+    if store.section(cid)=='programs' and not program_guard(api,cid,store):return
     store.set_current_birth(cid,text)
+    if store.section(cid)=='programs':
+        selected=store.program_selection(cid)
+        if selected:show_program(api,cid,selected,store)
+        else:show_programs(api,cid,store)
+        return
     if store.section(cid) in ('year','month','day'):
         show_forecast(api,cid,text,store,store.section(cid)); return
     if store.section(cid) == 'karma':

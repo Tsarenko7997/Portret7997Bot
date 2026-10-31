@@ -138,3 +138,11 @@ def calculate_compatibility(first, second):
     b, _ = calculate(second)
     return [(i, a[f'П{i}'], b[f'П{i}'], reduce22(a[f'П{i}']+b[f'П{i}']))
             for i in range(1, 9)]
+
+
+def calculate_program(value, program):
+    """Shift each of the six original internal portrait positions independently."""
+    if type(program) is not int or not 1 <= program <= 21:
+        raise ValueError('Оберіть програму від 1 до 21.')
+    portrait, _ = calculate(value)
+    return {i: reduce22(portrait[f'П{i}'] + program) for i in range(1, 7)}

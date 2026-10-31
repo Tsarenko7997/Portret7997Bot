@@ -165,3 +165,48 @@ def draw_compatibility(first,second,rows,kind='general'):
                    for x,y in points],fill=color)
     path([(width/2-125,height-57),(width/2+125,height-57)],fill='#e7e0df',line_width=1)
     out=BytesIO();im.save(out,'PNG');return out.getvalue()
+
+
+def draw_program(birth,program,title,values):
+    """Six final numbers in the same paper, frame and lotus style as the portrait."""
+    from PIL import ImageFilter
+    if type(program) is not int or not 1<=program<=21 or set(values)!=set(range(1,7)) or any(type(v) is not int or not 1<=v<=22 for v in values.values()):
+        raise ValueError('Expected a program and 6 final arcana')
+    scale=2;width,height=707,820
+    wash=Image.new('RGB',(width*scale,height*scale),'#fdfbf8');wd=ImageDraw.Draw(wash)
+    wd.ellipse((-180,700,1150,1900),fill='#f3eef4')
+    wd.ellipse((400,-400,1700,800),fill='#ffffff')
+    im=wash.filter(ImageFilter.GaussianBlur(160));d=ImageDraw.Draw(im)
+    fontpath=str(ROOT/'assets'/'DejaVuSans.ttf')
+    def text(x,y,t,size=26,fill='#111111'):
+        d.text((round(x*scale),round(y*scale)),str(t),font=ImageFont.truetype(fontpath,round(size*scale)),fill=fill,anchor='mm')
+    def path(points,fill='#6c9fc3',width=1.5):
+        d.line([(round(x*scale),round(y*scale)) for x,y in points],fill=fill,width=round(width*scale),joint='curve')
+    text(width/2,30,'@lakshmi_775',12,'#69717a')
+    text(width/2,70,f'Програма {program}',28,'#283f59')
+    words=title.split();lines=[];line=''
+    for word in words:
+        candidate=(line+' '+word).strip()
+        if d.textlength(candidate,font=ImageFont.truetype(fontpath,44))>620*scale and line:
+            lines.append(line);line=word
+        else:line=candidate
+    lines.append(line)
+    for i,line in enumerate(lines):text(width/2,110+i*27,line,22,'#283f59')
+    text(width/2,147+(len(lines)-1)*27,birth,18,'#4e5660')
+    nodes={1:(180,252),2:(353.5,252),3:(527,252),4:(267,397),5:(440,397),6:(353.5,542)}
+    path([(110,225),(310,615),(397,615),(597,225)])
+    for i,(x,y) in nodes.items():
+        d.rectangle((round((x-40)*scale),round((y-48)*scale),round((x+40)*scale),round((y+48)*scale)),fill='white',outline='#6c9fc3',width=3)
+        text(x,y-10,values[i],36);text(x,y+28,f'П{i}',13,'#4e5660')
+    def curve(a,b,c,e):
+        return [tuple((1-t)**3*a[i]+3*(1-t)**2*t*b[i]+3*(1-t)*t*t*c[i]+t**3*e[i] for i in (0,1)) for t in [j/32 for j in range(33)]]
+    base=(452,1332)
+    for tip,left,right,color in [
+        ((356,1297),(393,1342),(437,1293),'#f3e4e3'),((548,1297),(467,1293),(511,1342),'#f3e4e3'),
+        ((390,1275),(404,1326),(449,1282),'#f8eae7'),((514,1275),(455,1282),(500,1326),'#f8eae7'),
+        ((420,1261),(419,1312),(463,1283),'#f7e7e4'),((484,1261),(441,1283),(485,1312),'#f7e7e4'),
+        ((452,1248),(416,1298),(488,1298),'#fff5ee')]:
+        points=curve(base,left,left,tip)+curve(tip,right,right,base)
+        d.polygon([(round((x+width/2-452)*scale),round((y+height-1400)*scale)) for x,y in points],fill=color)
+    path([(width/2-125,height-57),(width/2+125,height-57)],fill='#e7e0df',width=1)
+    out=BytesIO();im.save(out,'PNG');return out.getvalue()

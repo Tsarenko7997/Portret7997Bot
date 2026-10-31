@@ -119,10 +119,9 @@ class ProAccessTests(unittest.TestCase):
         for action in ('section:programs','program:1','program_question:1:1','programs'):
             handle(self.api,callback(action),self.store,self.prices)
             self.assertIn('лише в пакеті Pro',self.api.calls[-1][1]['text'])
-    def test_pro_program_placeholder_is_honest(self):
+    def test_pro_missing_catalog_fails_without_exposing_partial_content(self):
         self.grant('pro');handle(self.api,callback('section:programs'),self.store,self.prices)
-        self.assertIn('Доступ Pro активний',self.api.calls[-1][1]['text'])
-        self.assertIn('ще готується',self.api.calls[-1][1]['text'])
+        self.assertIn('Не вдалося відкрити описи програм',self.api.calls[-1][1]['text'])
         self.assertNotIn('100 грн',access_text(self.store,7))
     def test_migration_preserves_existing_invites_and_audit_records_as_full(self):
         self.store.close()

@@ -322,6 +322,18 @@ class Store:
             self.db.execute('INSERT OR REPLACE INTO state VALUES (?,?)',
                             ('compatibility:'+str(user_id),json.dumps(dates)))
 
+    def program_selection(self,user_id):
+        row=self.db.execute('SELECT value FROM state WHERE key=?',('program_selection:'+str(user_id),)).fetchone()
+        return int(row[0]) if row and row[0] in tuple(map(str,range(1,22))) else None
+
+    def set_program_selection(self,user_id,number):
+        if number is not None and (type(number) is not int or not 1<=number<=21):
+            raise ValueError('Invalid program')
+        with self.db:
+            key='program_selection:'+str(user_id)
+            if number is None:self.db.execute('DELETE FROM state WHERE key=?',(key,))
+            else:self.db.execute('INSERT OR REPLACE INTO state VALUES (?,?)',(key,str(number)))
+
     def current_birth(self,user_id):
         row = self.db.execute('SELECT value FROM state WHERE key=?',('birth:'+str(user_id),)).fetchone()
         return row[0] if row else None
@@ -335,6 +347,7 @@ class Store:
             self.db.execute('INSERT OR REPLACE INTO state VALUES (?,?)',('birth:'+str(user_id),birth))
 
     def forget_birth(self,user_id):
+        self.set_program_selection(user_id,None)
         with self.db:
             self.db.execute('DELETE FROM state WHERE key IN (?,?)',('compatibility:'+str(user_id),'compatibility_kind:'+str(user_id)))
             self.db.execute('DELETE FROM state WHERE key=?',('birth:'+str(user_id),))

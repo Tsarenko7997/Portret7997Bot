@@ -12,7 +12,7 @@ import urllib.error
 from pathlib import Path
 from datetime import datetime
 from zoneinfo import ZoneInfo
-from portrait import calculate, calculate_karma, calculate_social, calculate_money, calculate_matrix, calculate_forecast, calculate_compatibility, calculate_program
+from portrait import calculate, calculate_karma, calculate_social, calculate_money, calculate_matrix, calculate_forecast, calculate_compatibility, calculate_program, matrix_patterns
 from render import draw_portrait, draw_karma, draw_matrix, draw_compatibility, draw_program
 from catalog import POSITIONS, FREE, description, chunks, position_meaning, TELEGRAM_HANDLE, TELEGRAM_URL, INSTAGRAM_URL, CONTACTS
 from karma_catalog import negative_description, positive_description
@@ -20,6 +20,7 @@ from money_catalog import money_description
 from forecast_catalog import forecast_description
 from compatibility_catalog import compatibility_position, compatibility_description
 from program_catalog import read_program_catalog, program_entry, program_description
+from matrix_catalog import read_matrix_catalog, matrix_digit_description
 from payments import Store, Prices, PaymentError
 
 ROOT=Path(__file__).parent
@@ -57,10 +58,10 @@ def instagram_nickname_link(method,data):
         result += TELEGRAM_HANDLE+suffix
     # Apply after shortening the URL, so all offsets refer to the final text.
     headings = (r'(?m)^(?:Позиція |Плюсова карма · |Мінусова карма · |'
-                r'Програма \d+ · |Питання \d+ · |Сумісність · |С[1-8] · |Грошове призначення · |Прогноз на рік · |Прогноз на місяць · |Прогноз на день · |Аркан \d+ |Ваш аркан грошового призначення: )[^\n]+|'
+                r'Матриця · |Програма \d+ · |Питання \d+ · |Сумісність · |С[1-8] · |Грошове призначення · |Прогноз на рік · |Прогноз на місяць · |Прогноз на день · |Аркан \d+ |Ваш аркан грошового призначення: )[^\n]+|'
                 r'^(?:Позитивні прояви|Можливі труднощі|Внутрішні установки та блоки|'
                 r'Кармічна тема|Внутрішні блоки|Сильні сторони|Ваш ресурс|Можливі прояви|'
-                r'Що може послаблювати ресурс|Ваш акцент|Відповідь|Практичний орієнтир|Ключові слова|Загальний опис|Позитивні події)(?=\. )|'
+                r'Що може послаблювати ресурс|Ваш акцент|Сильна сторона|Рекомендація|Орієнтир|Відповідь|Практичний орієнтир|Ключові слова|Загальний опис|Позитивні події)(?=\. )|'
                 r'^(?:Карма|Позитивна карма|Негативна карма)(?=: )')
     for match in re.finditer(headings,result):
         entities.append({'type':'bold','offset':len(result[:match.start()].encode('utf-16-le'))//2,
@@ -241,7 +242,7 @@ WELCOME = (
     '🔮 <b>Що Ви можете розрахувати в боті?</b>\n\n'
     '• <b>Особистий портрет — 33 позиції:</b> характер, таланти, внутрішні ресурси та життєві уроки.\n'
     '• <b>Позитивну й негативну карму:</b> можливості та повторювані сценарії в межах нумерологічної методики.\n'
-    '• <b>Матрицю:</b> поєднання чисел Вашої дати народження. Тлумачення готуються.\n'
+    '• <b>Матрицю:</b> схема, описи цифр за їхньою кількістю, заповнені лінії та трикутники.\n'
     '• <b>Соціальне призначення:</b> аркан реалізації та взаємодії з іншими. Тлумачення готуються.\n'
     '• <b>Грошове призначення:</b> символічні підказки для роздумів про свої здібності й реалізацію.\n'
     '• <b>Прогноз на рік:</b> два аркани для кожного з 10 років та їхні тлумачення.\n'
@@ -502,17 +503,70 @@ def show_forecast(api,cid,birth,store,section):
         [{'text':'📆 Прогноз на день','callback_data':'section:day'}],
         [{'text':'Головне меню','callback_data':'home'}]]})
 
+def matrix_navigation(active=True):
+    rows=[[{'text':('' if active else '🔒 ')+str(n),'callback_data':f'matrix_digit:{n}'} for n in group]
+          for group in ((1,4,7),(2,5,8),(3,6,9))]
+    return {'inline_keyboard':rows+[
+        [{'text':('' if active else '🔒 ')+'Лінії','callback_data':'matrix_lines'},
+         {'text':('' if active else '🔒 ')+'Трикутники','callback_data':'matrix_triangles'}],
+        [{'text':'Матриця','callback_data':'section:matrix'},
+         {'text':'Портрет','callback_data':'section:portrait'}],
+        [{'text':'Головне меню','callback_data':'home'}]]}
+
+
 def show_matrix(api,cid,birth,store):
-    result = calculate_matrix(birth)
-    active = has_full_access(store,cid)
-    caption = ('Матриця · '+birth+'\n\n'
-               +('Детальні описи матриці готуються.' if active else LOCKED_DESCRIPTION)
-               +'\nДля нового розрахунку надішліть іншу дату.\n\n'
-               +CONTACTS)
-    api.call('sendPhoto',{'chat_id':cid,'caption':caption,'reply_markup':{'inline_keyboard':locked_button('matrix',active)+[
-        [{'text':'Портрет','callback_data':'section:portrait'},
-         {'text':'Карма +/−','callback_data':'section:karma'}],
-        [{'text':'Головне меню','callback_data':'home'}]]}},('photo',draw_matrix(birth,result),'matrix.png'))
+    result=calculate_matrix(birth)
+    active=has_full_access(store,cid)
+    caption=('Матриця · '+birth+'\n\n'+
+        ('Оберіть цифру, щоб прочитати її опис за Вашою кількістю повторень. '
+         'Окремо можна переглянути заповнені лінії та трикутники.' if active else LOCKED_DESCRIPTION)+
+        '\n\nДля нового розрахунку надішліть іншу дату.\n\n'+CONTACTS)
+    api.call('sendPhoto',{'chat_id':cid,'caption':caption,'reply_markup':matrix_navigation(active)},
+             ('photo',draw_matrix(birth,result),'matrix.png'))
+
+
+def show_matrix_description(api,cid,kind,store,digit=None):
+    store.set_section(cid,'matrix')
+    birth=store.current_birth(cid)
+    # Every route checks live Full/Pro membership before touching private text.
+    if not has_full_access(store,cid):
+        show_description_lock(api,cid,'Матриця',birth,store,'matrix');return
+    if not birth:
+        api.say(cid,'Надішліть дату народження у форматі ДД.ММ.РРРР. Наприклад: 16.09.1998.');return
+    result=calculate_matrix(birth);counts=result['counts'];patterns=matrix_patterns(counts)
+    heading='Матриця · '+birth
+    try:
+        if kind=='digit':
+            body=matrix_digit_description(digit,counts[digit])
+            body='Кількість цифр '+str(digit)+': '+str(counts[digit])+'.\n\n'+body
+        elif kind=='lines':
+            catalog=read_matrix_catalog()['lines']
+            selected=patterns['selected_lines']
+            if selected:
+                body='Заповнені лінії\n\n'+'\n\n'.join(
+                    catalog[key]['title']+'\nКількість цифр: '+str(patterns['lines'][key]['total'])+'.\n\n'+catalog[key]['text']
+                    for key in selected)
+            else:body='Серед ліній із найбільшою кількістю цифр немає лінії без порожніх клітинок.'
+        elif kind=='triangles':
+            catalog=read_matrix_catalog()['triangles'];available=[key for key,row in patterns['triangles'].items() if row['complete']]
+            selected=patterns['selected_triangles']
+            if not selected:body='Немає повного трикутника: в обох поєднаннях бракує хоча б однієї цифри.'
+            else:
+                totals='\n'.join(catalog[key]['title']+': '+str(patterns['triangles'][key]['total'])+' цифр.' for key in available)
+                if len(selected)==2:summary='Обидва трикутники мають однакову кількість цифр. Є рівновага обох напрямів.'
+                elif len(available)==2:summary='Переважає '+catalog[selected[0]]['title'].lower()+'.'
+                else:summary='Повністю присутній лише '+catalog[selected[0]]['title'].lower()+'. Інший трикутник не враховується через порожні клітинки.'
+                body='Трикутники\n\n'+totals+'\n\n'+summary+'\n\n'+'\n\n'.join(
+                    catalog[key]['title']+'\n\n'+catalog[key]['text'] for key in selected)
+        else:return
+    except (ValueError,KeyError,lzma.LZMAError):
+        api.say(cid,'Не вдалося відкрити опис матриці. Спробуйте пізніше або напишіть '+SUPPORT+'.');return
+    p,_=calculate(birth)
+    context='Перші три позиції портрета: '+', '.join(f'П{i}: {p[f"П{i}"]}' for i in range(1,4))+'.'
+    text=heading+'\n\n'+body+'\n\n'+context+'\n\n'+CONTACTS
+    parts=list(chunks(text))
+    for i,part in enumerate(parts):api.say(cid,part,**({'reply_markup':matrix_navigation()} if i==len(parts)-1 else {}))
+
 
 def show_money(api,cid,birth,store):
     name = store.money_name(cid)
@@ -890,6 +944,13 @@ def handle(api, update, store, prices):
                 if has_full_access(store,cid): show_section(api,cid,args[1],store,prices)
                 else: show_description_lock(api,cid,SECTIONS[args[1]],store.current_birth(cid),store,args[1])
             return
+        if action=='matrix_digit':
+            if len(args)==2 and args[1] in tuple(map(str,range(1,10))):
+                show_matrix_description(api,cid,'digit',store,int(args[1]))
+            return
+        if action in ('matrix_lines','matrix_triangles'):
+            if len(args)==1:show_matrix_description(api,cid,action.split('_')[1],store)
+            return
         if action == 'forecast':
             if len(args) == 5:
                 birth = store.current_birth(cid) or args[1]
@@ -1125,6 +1186,7 @@ def main():
 if __name__ == '__main__':
     try: main()
     except KeyboardInterrupt: print('Бот зупинено.')
+
 
 
 

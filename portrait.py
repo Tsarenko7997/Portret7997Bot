@@ -146,3 +146,32 @@ def calculate_program(value, program):
         raise ValueError('Оберіть програму від 1 до 21.')
     portrait, _ = calculate(value)
     return {i: reduce22(portrait[f'П{i}'] + program) for i in range(1, 7)}
+
+
+
+MATRIX_LINES={'h147':(1,4,7),'h258':(2,5,8),'h369':(3,6,9),
+              'd159':(1,5,9),'d357':(3,5,7),'v123':(1,2,3),
+              'v456':(4,5,6),'v789':(7,8,9)}
+MATRIX_TRIANGLES={'altruism':(1,4,7,5),'personal':(5,3,8,9)}
+
+
+def matrix_patterns(counts):
+    """Compare all eight line totals, retain every maximum without empty cells.
+
+    Triangle totals include every repetition of each constituent digit. An
+    incomplete triangle never participates in comparison, regardless of total.
+    """
+    if set(counts)!=set(range(1,10)) or any(type(v) is not int or v<0 for v in counts.values()):
+        raise ValueError('Expected counts for digits 1..9')
+    def summarize(groups):
+        return {key:{'digits':digits,'total':sum(counts[d] for d in digits),
+                     'complete':all(counts[d]>0 for d in digits)} for key,digits in groups.items()}
+    lines=summarize(MATRIX_LINES);highest=max(row['total'] for row in lines.values())
+    selected=[key for key,row in lines.items() if row['complete'] and row['total']==highest]
+    triangles=summarize(MATRIX_TRIANGLES)
+    eligible=[key for key,row in triangles.items() if row['complete']]
+    if not eligible:winners=[]
+    else:
+        top=max(triangles[key]['total'] for key in eligible)
+        winners=[key for key in eligible if triangles[key]['total']==top]
+    return {'lines':lines,'selected_lines':selected,'triangles':triangles,'selected_triangles':winners}

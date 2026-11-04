@@ -21,6 +21,7 @@ from forecast_catalog import forecast_description
 from compatibility_catalog import compatibility_position, compatibility_description
 from program_catalog import read_program_catalog, program_entry, program_description
 from matrix_catalog import read_matrix_catalog, matrix_digit_description
+from social_catalog import social_description
 from payments import Store, Prices, PaymentError
 
 ROOT=Path(__file__).parent
@@ -57,8 +58,8 @@ def instagram_nickname_link(method,data):
                          'url':INSTAGRAM_URL})
         result += TELEGRAM_HANDLE+suffix
     # Apply after shortening the URL, so all offsets refer to the final text.
-    headings = (r'(?m)^(?:Позиція |Плюсова карма · |Мінусова карма · |'
-                r'Матриця · |Програма \d+ · |Питання \d+ · |Сумісність · |С[1-8] · |Грошове призначення · |Прогноз на рік · |Прогноз на місяць · |Прогноз на день · |Аркан \d+ |Ваш аркан грошового призначення: )[^\n]+|'
+    headings = (r'(?m)^🌍 СОЦІАЛЬНЕ ПРИЗНАЧЕННЯ$|^(?:Позиція |Плюсова карма · |Мінусова карма · |'
+                r'Соціальне призначення · |\d+ ЕНЕРГІЯ · |🔑 Ваш орієнтир:|Матриця · |Програма \d+ · |Питання \d+ · |Сумісність · |С[1-8] · |Грошове призначення · |Прогноз на рік · |Прогноз на місяць · |Прогноз на день · |Аркан \d+ |Ваш аркан грошового призначення: )[^\n]+|'
                 r'^(?:Позитивні прояви|Можливі труднощі|Внутрішні установки та блоки|'
                 r'Кармічна тема|Внутрішні блоки|Сильні сторони|Ваш ресурс|Можливі прояви|'
                 r'Що може послаблювати ресурс|Ваш акцент|Сильна сторона|Рекомендація|Орієнтир|Відповідь|Практичний орієнтир|Ключові слова|Загальний опис|Позитивні події)(?=\. )|'
@@ -243,7 +244,7 @@ WELCOME = (
     '• <b>Особистий портрет — 33 позиції:</b> характер, таланти, внутрішні ресурси та життєві уроки.\n'
     '• <b>Позитивну й негативну карму:</b> можливості та повторювані сценарії в межах нумерологічної методики.\n'
     '• <b>Матрицю:</b> схема, описи цифр за їхньою кількістю, заповнені лінії та трикутники.\n'
-    '• <b>Соціальне призначення:</b> аркан реалізації та взаємодії з іншими. Тлумачення готуються.\n'
+    '• <b>Соціальне призначення:</b> аркан реалізації та взаємодії з іншими, його опис і практичний орієнтир.\n'
     '• <b>Грошове призначення:</b> символічні підказки для роздумів про свої здібності й реалізацію.\n'
     '• <b>Прогноз на рік:</b> два аркани для кожного з 10 років та їхні тлумачення.\n'
     '• <b>Прогноз на місяць:</b> аркани для 24 місяців та їхні тлумачення.\n'
@@ -592,16 +593,21 @@ def show_money(api,cid,birth,store):
                 [{'text':'Головне меню','callback_data':'home'}]]})
 
 def show_social(api,cid,birth,store):
-    arcanum = calculate_social(birth)
-    active = has_full_access(store,cid)
-    api.say(cid,'Соціальне призначення · '+birth+'\n\n'
-            +f'Ваш аркан: {arcanum}.\n\n'
-            +('Детальний опис соціального призначення готується.' if active else LOCKED_DESCRIPTION)+'\n\n'
-            +'Для нового розрахунку надішліть іншу дату.\n\n'+CONTACTS,
-            reply_markup={'inline_keyboard':locked_button('social',active)+[
-                [{'text':'Портрет','callback_data':'section:portrait'},
-                 {'text':'Карма +/−','callback_data':'section:karma'}],
-                [{'text':'Головне меню','callback_data':'home'}]]})
+    arcanum=calculate_social(birth)
+    active=has_full_access(store,cid)
+    text='Соціальне призначення · '+birth+'\n\n'+f'Ваш аркан: {arcanum}.\n\n'
+    if active:
+        # Paid descriptions are loaded only after the live Full/Pro check.
+        try:text+=social_description(arcanum)
+        except (ValueError,KeyError,lzma.LZMAError):
+            text+='Не вдалося відкрити опис. Спробуйте пізніше або напишіть '+SUPPORT+'.'
+    else:text+=LOCKED_DESCRIPTION
+    text+='\n\nДля нового розрахунку надішліть іншу дату.\n\n'+CONTACTS
+    markup={'inline_keyboard':locked_button('social',active)+[
+        [{'text':'Портрет','callback_data':'section:portrait'},{'text':'Карма +/−','callback_data':'section:karma'}],
+        [{'text':'Головне меню','callback_data':'home'}]]}
+    parts=list(chunks(text))
+    for i,part in enumerate(parts):api.say(cid,part,**({'reply_markup':markup} if i==len(parts)-1 else {}))
 
 KARMA_INTRO = (
     'Карма: це те, що Ви принесли із минулого життя й отримали як багаж у цьому.\n\n'
@@ -1184,6 +1190,7 @@ def main():
 if __name__ == '__main__':
     try: main()
     except KeyboardInterrupt: print('Бот зупинено.')
+
 
 
 

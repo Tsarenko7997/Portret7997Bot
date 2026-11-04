@@ -48,5 +48,5 @@ def matrix_digit_description(digit,count):
     key=str(count)
     if key not in entry['variants']:
         key=next((key for key in VARIANTS[digit] if key.endswith('+') and count>=int(key[:-1])),None)
-    body=entry['variants'][key] if key else 'Для відсутньої цифри у наданому конспекті немає окремого опису.'
+    body=entry['variants'][key] if key else 'Для цієї кількості цифр опис поки недоступний.'
     return entry['title']+'\n\n'+entry['intro']+'\n\n'+body

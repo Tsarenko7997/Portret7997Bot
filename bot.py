@@ -561,9 +561,7 @@ def show_matrix_description(api,cid,kind,store,digit=None):
         else:return
     except (ValueError,KeyError,lzma.LZMAError):
         api.say(cid,'Не вдалося відкрити опис матриці. Спробуйте пізніше або напишіть '+SUPPORT+'.');return
-    p,_=calculate(birth)
-    context='Перші три позиції портрета: '+', '.join(f'П{i}: {p[f"П{i}"]}' for i in range(1,4))+'.'
-    text=heading+'\n\n'+body+'\n\n'+context+'\n\n'+CONTACTS
+    text=heading+'\n\n'+body+'\n\n'+CONTACTS
     parts=list(chunks(text))
     for i,part in enumerate(parts):api.say(cid,part,**({'reply_markup':matrix_navigation()} if i==len(parts)-1 else {}))
 

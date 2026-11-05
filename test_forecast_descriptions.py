@@ -75,7 +75,7 @@ class ForecastFlowTests(unittest.TestCase):
     def test_all_buttons_and_telegram_payload_limits(self):
         for active in (False,True):
             if active:self.activate()
-            for section,count in [('year',20),('month',24),('day',31)]:
+            for section,count in [('year',20),('month',24),('day',30)]:
                 handle(self.api,callback('section:'+section),self.store,self.prices)
                 data=self.api.calls[-1][1]
                 buttons=[b for row in data['reply_markup']['inline_keyboard'] for b in row
@@ -126,3 +126,4 @@ class ForecastFlowTests(unittest.TestCase):
 
 
 if __name__=='__main__':unittest.main()
+

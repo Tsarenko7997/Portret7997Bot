@@ -93,7 +93,7 @@ class MatrixReadings(unittest.TestCase):
         self.grant('pro');self.store.set_current_birth(7,'16.09.1998')
         with patch('bot.calculate_matrix',return_value={'counts':dict.fromkeys(range(1,10),1)}):
             self.click('matrix_triangles');text=self.api.calls[-1][1]['text']
-            self.assertIn('Only triangle altruism',text);self.assertIn('Only triangle personal',text);self.assertIn('однакову',text)
+            self.assertIn('Only triangle altruism',text);self.assertIn('Only triangle personal',text);self.assertIn('врівноважують',text)
         with patch('bot.time.time',return_value=self.store.membership_until(7)):
             self.click('matrix_lines');self.assertIn('🔒 Опис закритий',self.api.calls[-1][1]['text'])
     def test_latest_birth_in_old_buttons_and_no_birth(self):
@@ -109,3 +109,4 @@ class MatrixReadings(unittest.TestCase):
         self.assertFalse(any(c[0]=='sendMessage' for c in self.api.calls))
 
 if __name__=='__main__':unittest.main()
+

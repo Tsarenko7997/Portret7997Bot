@@ -22,7 +22,7 @@ class ForecastTests(unittest.TestCase):
         self.assertEqual(next(r for r in rows if r[0]=='2024'),('2024',4,22))
         self.assertEqual(calculate_forecast('16.09.1998','year',date(2026,10,23))[3],('2026',13,9))
         self.assertEqual(calculate_forecast('16.09.1998','month',date(2026,10,23))[6],('10.2026',14))
-        self.assertEqual(calculate_forecast('16.09.1998','day',date(2026,10,23))[5],('23.10.2026',15))
+        self.assertEqual(calculate_forecast('16.09.1998','day',date(2026,10,23))[4],('23.10.2026',15))
     def test_windows_cross_year_and_leap_day(self):
         years=calculate_forecast('16.09.1998','year',date(2026,10,23))
         self.assertEqual((len(years),years[0][0],years[-1][0]),(10,'2023','2032'))
@@ -30,9 +30,9 @@ class ForecastTests(unittest.TestCase):
         self.assertEqual((len(months),months[0][0],months[6][0],months[-1][0]),
                          (24,'07.2025','01.2026','06.2027'))
         days=calculate_forecast('16.09.1998','day',date(2024,2,29))
-        self.assertEqual((len(days),days[0][0],days[5][0],days[-1][0]),
-                         (31,'24.02.2024','29.02.2024','25.03.2024'))
-        self.assertEqual(len(set(r[0] for r in days)),31)
+        self.assertEqual((len(days),days[0][0],days[4][0],days[-1][0]),
+                         (30,'25.02.2024','29.02.2024','25.03.2024'))
+        self.assertEqual(len(set(r[0] for r in days)),30)
     def test_reduction_and_validation(self):
         # Day 31 becomes П1=9; 9+12+10=31 => 9.
         self.assertEqual(calculate_forecast('31.12.1999','month',date(2026,12,1))[6],('12.2026',9))
@@ -91,3 +91,4 @@ class ForecastTests(unittest.TestCase):
 
 
 if __name__=='__main__': unittest.main()
+

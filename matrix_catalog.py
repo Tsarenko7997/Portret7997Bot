@@ -4,6 +4,7 @@ import hashlib
 import json
 import lzma
 import os
+import re
 from functools import lru_cache
 
 VARIANTS={1:('1','2','3+'),2:('1','2','3+'),3:('0','1','2+'),
@@ -48,5 +49,17 @@ def matrix_digit_description(digit,count):
     key=str(count)
     if key not in entry['variants']:
         key=next((key for key in VARIANTS[digit] if key.endswith('+') and count>=int(key[:-1])),None)
-    body=entry['variants'][key] if key else 'Для цієї кількості цифр опис поки недоступний.'
+    if not key:
+        return entry['title']+'\n\n'+entry['intro']+'\n\nОпис поки недоступний.'
+    body=entry['variants'][key]
+    digit_name=r"(?:одиниц|двій|трій|четвір|п[’'ʼ]ятір|шіст|сім|вісім|дев[’'ʼ]ят)\w*"
+    heading,sep,rest=body.partition('\n')
+    if sep and re.fullmatch(rf'(?:Одна|Дві|Три) {digit_name}(?: та більше)?|{digit_name} немає',
+                            heading.strip(),re.IGNORECASE):
+        body=rest.lstrip()
+    count_start=rf'(?<!\w)(?:Одна|Дві|Три) {digit_name} '
+    # Retain the personal observation after the count-based explanation.
+    body=re.sub(count_start+r'[^.!?:\n]+: (?=Ви )','',body)
+    body=re.sub(count_start+r'[^.!?\n]+[.!?] *','',body).strip()
     return entry['title']+'\n\n'+entry['intro']+'\n\n'+body
+

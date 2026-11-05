@@ -67,6 +67,13 @@ def instagram_nickname_link(method,data):
     for match in re.finditer(headings,result):
         entities.append({'type':'bold','offset':len(result[:match.start()].encode('utf-16-le'))//2,
                          'length':len(match.group().encode('utf-16-le'))//2})
+    # Fixed-width text keeps dates, energy numbers and year separators aligned.
+    if method == 'sendMessage' and result.startswith(('Прогноз на рік · ', 'Прогноз на місяць · ', 'Прогноз на день · ')):
+        row = r'(?:\d{2}\.){0,2}\d{4} \d{1,2}(?: ?/\d{1,2})?(?: +← поточний період)?'
+        table = re.search(r'(?m)^'+row+r'(?:\n'+row+r')+$',result)
+        if table:
+            entities.append({'type':'pre','offset':len(result[:table.start()].encode('utf-16-le'))//2,
+                             'length':len(table.group().encode('utf-16-le'))//2})
     if not entities:
         return data
     entities.sort(key=lambda entity:entity['offset'])
@@ -248,7 +255,7 @@ WELCOME = (
     '• <b>Грошове призначення:</b> символічні підказки для роздумів про свої здібності й реалізацію.\n'
     '• <b>Прогноз на рік:</b> два аркани для кожного з 10 років та їхні тлумачення.\n'
     '• <b>Прогноз на місяць:</b> аркани для 24 місяців та їхні тлумачення.\n'
-    '• <b>Прогноз на день:</b> аркани для 31 дня та їхні тлумачення.\n\n'
+    '• <b>Прогноз на день:</b> аркани для 30 днів та їхні тлумачення.\n\n'
     '• <b>Сумісність:</b> любовна, загальна та батьківська; 8 позицій за двома датами народження.\n\n'
     '💎 <b>Пакети доступу</b>\n\n'
     '<b>Повний:</b> усі готові розділи, окрім 21 програми. '
@@ -429,14 +436,20 @@ def receive_compatibility_dates(api,cid,text,store):
     show_compatibility(api,cid,store)
 
 
+def forecast_button_number(number):
+    # A figure space reserves the second digit's width while keeping native
+    # Telegram button labels centered. The joiner prevents trimming the pad.
+    return str(number) if number>=10 else f'{number}\u2007\u2060'
+
+
 def forecast_buttons(birth,section,rows,active):
     prefix = '' if active else '🔒 '
     if section == 'year':
-        return [[{'text':f'{prefix}{period} · {icon} {number}',
+        return [[{'text':f'{prefix}{period} · {icon} {forecast_button_number(number)}',
                   'callback_data':f'forecast:{birth}:year:{period}:{slot}'}
                  for slot,icon,number in ((1,'💼',work),(2,'❤️',personal))]
                 for period,work,personal in rows]
-    buttons = [{'text':f'{prefix}{row[0]} · {row[1]}',
+    buttons = [{'text':f'{prefix}{row[0]} · {forecast_button_number(row[1])}',
                 'callback_data':f'forecast:{birth}:{section}:{row[0]}:1'} for row in rows]
     midpoint = (len(buttons) + 1) // 2
     return [[buttons[i]] + ([buttons[i+midpoint]] if i+midpoint < len(buttons) else [])
@@ -492,8 +505,12 @@ def show_forecast(api,cid,birth,store,section):
     if section == 'year':
         text+=('Перше число: професійний розвиток, кар’єра, бізнес, фінанси.\n'
                'Друге число: особисте життя, кохання, стосунки, емоційне здоров’я, сім’я.\n\n')
-    text+='\n'.join(' '.join([row[0],'/'.join(map(str,row[1:]))])+
-                    (' ← поточний період' if row[0]==current else '') for row in rows)
+    lines=[]
+    for period,first,*rest in rows:
+        values=f'{first:<2}/{rest[0]}' if rest else str(first)
+        marker=(' '*(2-len(str(rest[0] if rest else first)))+' ← поточний період') if period==current else ''
+        lines.append(f'{period} {values}'+marker)
+    text+='\n'.join(lines)
     active=has_full_access(store,cid)
     text+='\n\nОберіть період нижче, щоб прочитати його опис.'
     if not active: text+='\n\n'+LOCKED_DESCRIPTION
@@ -539,13 +556,12 @@ def show_matrix_description(api,cid,kind,store,digit=None):
     try:
         if kind=='digit':
             body=matrix_digit_description(digit,counts[digit])
-            body='Кількість цифр '+str(digit)+': '+str(counts[digit])+'.\n\n'+body
         elif kind=='lines':
             catalog=read_matrix_catalog()['lines']
             selected=patterns['selected_lines']
             if selected:
                 body='Заповнені лінії\n\n'+'\n\n'.join(
-                    catalog[key]['title']+'\nКількість цифр: '+str(patterns['lines'][key]['total'])+'.\n\n'+catalog[key]['text']
+                    catalog[key]['title']+'\n\n'+catalog[key]['text']
                     for key in selected)
             else:body='Серед ліній із найбільшою кількістю цифр немає лінії без порожніх клітинок.'
         elif kind=='triangles':
@@ -553,11 +569,10 @@ def show_matrix_description(api,cid,kind,store,digit=None):
             selected=patterns['selected_triangles']
             if not selected:body='Немає повного трикутника: в обох поєднаннях бракує хоча б однієї цифри.'
             else:
-                totals='\n'.join(catalog[key]['title']+': '+str(patterns['triangles'][key]['total'])+' цифр.' for key in available)
-                if len(selected)==2:summary='Обидва трикутники мають однакову кількість цифр. Є рівновага обох напрямів.'
+                if len(selected)==2:summary='Обидва напрями врівноважують один одного.'
                 elif len(available)==2:summary='Переважає '+catalog[selected[0]]['title'].lower()+'.'
                 else:summary='Повністю присутній лише '+catalog[selected[0]]['title'].lower()+'. Інший трикутник не враховується через порожні клітинки.'
-                body='Трикутники\n\n'+totals+'\n\n'+summary+'\n\n'+'\n\n'.join(
+                body='Трикутники\n\n'+summary+'\n\n'+'\n\n'.join(
                     catalog[key]['title']+'\n\n'+catalog[key]['text'] for key in selected)
         else:return
     except (ValueError,KeyError,lzma.LZMAError):

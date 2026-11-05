@@ -126,7 +126,7 @@ def calculate_forecast(value,section,today):
                            reduce22(portrait['П1']+month+reduce22(digit_sum(year)))))
         return result
     if section == 'day':
-        days=[today+timedelta(days=offset) for offset in range(-5,26)]
+        days=[today+timedelta(days=offset) for offset in range(-4,26)]
         return [(day.strftime('%d.%m.%Y'),reduce22(birth_sum+digit_sum(day.strftime('%d%m%Y'))))
                 for day in days]
     raise ValueError('Невідомий розділ прогнозу.')
@@ -175,3 +175,4 @@ def matrix_patterns(counts):
         top=max(triangles[key]['total'] for key in eligible)
         winners=[key for key in eligible if triangles[key]['total']==top]
     return {'lines':lines,'selected_lines':selected,'triangles':triangles,'selected_triangles':winners}
+

@@ -436,20 +436,26 @@ def receive_compatibility_dates(api,cid,text,store):
     show_compatibility(api,cid,store)
 
 
-def forecast_button_number(number):
-    # A figure space reserves the second digit's width while keeping native
-    # Telegram button labels centered. The joiner prevents trimming the pad.
-    return str(number) if number>=10 else f'{number}\u2007\u2060'
+# Telegram centers each button label. Use fixed-width digit glyphs and a
+# two-digit energy so every label in a column occupies the same width.
+FORECAST_BUTTON_DIGITS = str.maketrans('0123456789', '𝟶𝟷𝟸𝟹𝟺𝟻𝟼𝟽𝟾𝟿')
+
+
+def forecast_button_label(period,number,icon=''):
+    date_text=period.translate(FORECAST_BUTTON_DIGITS)
+    energy_text=f'{number:02d}'.translate(FORECAST_BUTTON_DIGITS)
+    middle=f'{icon} ' if icon else ''
+    return f'{date_text} · {middle}{energy_text}'
 
 
 def forecast_buttons(birth,section,rows,active):
     prefix = '' if active else '🔒 '
     if section == 'year':
-        return [[{'text':f'{prefix}{period} · {icon} {forecast_button_number(number)}',
+        return [[{'text':prefix+forecast_button_label(period,number,icon),
                   'callback_data':f'forecast:{birth}:year:{period}:{slot}'}
                  for slot,icon,number in ((1,'💼',work),(2,'❤️',personal))]
                 for period,work,personal in rows]
-    buttons = [{'text':f'{prefix}{row[0]} · {forecast_button_number(row[1])}',
+    buttons = [{'text':prefix+forecast_button_label(*row),
                 'callback_data':f'forecast:{birth}:{section}:{row[0]}:1'} for row in rows]
     midpoint = (len(buttons) + 1) // 2
     return [[buttons[i]] + ([buttons[i+midpoint]] if i+midpoint < len(buttons) else [])

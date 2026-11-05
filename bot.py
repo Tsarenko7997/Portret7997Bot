@@ -436,16 +436,9 @@ def receive_compatibility_dates(api,cid,text,store):
     show_compatibility(api,cid,store)
 
 
-# Telegram centers each button label. Use fixed-width digit glyphs and a
-# two-digit energy so every label in a column occupies the same width.
-FORECAST_BUTTON_DIGITS = str.maketrans('0123456789', '𝟶𝟷𝟸𝟹𝟺𝟻𝟼𝟽𝟾𝟿')
-
-
 def forecast_button_label(period,number,icon=''):
-    date_text=period.translate(FORECAST_BUTTON_DIGITS)
-    energy_text=f'{number:02d}'.translate(FORECAST_BUTTON_DIGITS)
     middle=f'{icon} ' if icon else ''
-    return f'{date_text} · {middle}{energy_text}'
+    return f'{period} · {middle}{number:02d}'
 
 
 def forecast_buttons(birth,section,rows,active):

@@ -294,10 +294,10 @@ class Store:
 
     def section(self,user_id):
         row = self.db.execute('SELECT value FROM state WHERE key=?',('section:'+str(user_id),)).fetchone()
-        return row[0] if row and row[0] in ('portrait','karma','social','money','matrix','year','month','day','compatibility','programs') else 'portrait'
+        return row[0] if row and row[0] in ('portrait','karma','social','money','matrix','year','month','day','compatibility','programs','pdf_full','pdf_pro') else 'portrait'
 
     def set_section(self,user_id,section):
-        if section not in ('portrait','karma','social','money','matrix','year','month','day','compatibility','programs'): raise ValueError('Unknown section')
+        if section not in ('portrait','karma','social','money','matrix','year','month','day','compatibility','programs','pdf_full','pdf_pro'): raise ValueError('Unknown section')
         with self.db:
             self.db.execute('INSERT OR REPLACE INTO state VALUES (?,?)',('section:'+str(user_id),section))
 
@@ -411,4 +411,5 @@ class Store:
     def set_offset(self, offset):
         with self.db:
             self.db.execute("INSERT OR REPLACE INTO state VALUES ('offset',?)",(str(offset),))
+
 

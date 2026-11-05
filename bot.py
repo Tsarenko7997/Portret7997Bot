@@ -23,6 +23,8 @@ from program_catalog import read_program_catalog, program_entry, program_descrip
 from matrix_catalog import read_matrix_catalog, matrix_digit_description
 from social_catalog import social_description
 from payments import Store, Prices, PaymentError
+from pdf_reports import build_full_pdf, build_programs_pdf
+from reportlab.platypus.doctemplate import LayoutError
 
 ROOT=Path(__file__).parent
 
@@ -96,7 +98,8 @@ class Telegram:
                 parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{val}\r\n'.encode())
             name,blob=file[:2]
             filename=file[2] if len(file)==3 else 'portrait.png'
-            parts.extend([f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"; filename="{filename}"\r\nContent-Type: image/png\r\n\r\n'.encode(),blob,f'\r\n--{boundary}--\r\n'.encode()])
+            mime='application/pdf' if filename.endswith('.pdf') else 'image/png'
+            parts.extend([f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"; filename="{filename}"\r\nContent-Type: {mime}\r\n\r\n'.encode(),blob,f'\r\n--{boundary}--\r\n'.encode()])
             body=b''.join(parts); headers['Content-Type']='multipart/form-data; boundary='+boundary
         else:
             body=json.dumps(data).encode(); headers['Content-Type']='application/json'
@@ -134,6 +137,7 @@ def main_menu():
                 'callback_data':'section:'+key} for key,label in SECTIONS.items()]
     return {'inline_keyboard':[
         [buttons[0]], buttons[1:3], buttons[3:5], buttons[5:7], [buttons[7]], [buttons[8]], [buttons[9]],
+        [{'text':'📄 PDF-файли','callback_data':'pdf_menu'}],
         [{'text':'Повний / Pro','callback_data':'packages'}],
         [{'text':'ℹ️ Інфо','callback_data':'info'}],
         [{'text':'Мій доступ','callback_data':'access'},
@@ -632,6 +636,62 @@ KARMA_INTRO = (
     'обмежувати, якщо їх не пропрацювати.'
 )
 
+PDF_SECTIONS={'pdf_full':'full','pdf_pro':'pro'}
+PDF_TITLES={'full':'Мій повний PDF','pro':'21 програма · PDF'}
+
+
+def pdf_navigation():
+    return {'inline_keyboard':[
+        [{'text':'📄 '+PDF_TITLES['full'],'callback_data':'pdf:full'}],
+        [{'text':'📘 '+PDF_TITLES['pro'],'callback_data':'pdf:pro'}],
+        [{'text':'Головне меню','callback_data':'home'}]]}
+
+
+def show_pdf_menu(api,cid):
+    api.say(cid,'Оберіть PDF за поточною датою народження.\n\n'
+                'Мій повний PDF: для пакетів «Повний» і Pro.\n'
+                '21 програма · PDF: лише для Pro.',
+            reply_markup=pdf_navigation())
+
+
+def pdf_access(api,cid,store,kind):
+    if (has_pro_access if kind=='pro' else has_full_access)(store,cid):
+        return True
+    required='Pro' if kind=='pro' else '«Повний» або Pro'
+    api.say(cid,'🔒 Цей PDF доступний у пакеті '+required+'.',
+            reply_markup={'inline_keyboard':[
+                [{'text':'Пакети доступу','callback_data':'packages'}],
+                [{'text':'Головне меню','callback_data':'home'}]]})
+    return False
+
+
+def show_pdf(api,cid,store,kind):
+    if not pdf_access(api,cid,store,kind):return
+    birth=store.current_birth(cid)
+    name=store.money_name(cid) if kind=='full' and birth else None
+    if not birth or (kind=='full' and not name):
+        store.set_section(cid,'pdf_'+kind)
+        text=('Надішліть дату народження у форматі ДД.ММ.РРРР, наприклад 16.09.1998.'
+              if not birth else
+              'Для грошового призначення надішліть лише ім’я українською, без прізвища та по батькові.')
+        api.say(cid,text,reply_markup={'inline_keyboard':[[{'text':'Головне меню','callback_data':'home'}]]})
+        return
+    try:
+        if kind=='full':
+            data=build_full_pdf(birth,name,datetime.now(ZoneInfo('Europe/Kyiv')).date())
+        else:
+            data=build_programs_pdf(birth)
+    except (ValueError,KeyError,OSError,EOFError,lzma.LZMAError,LayoutError):
+        api.say(cid,'Не вдалося сформувати PDF. Спробуйте ще раз пізніше або напишіть '+SUPPORT+'.',
+                reply_markup=pdf_navigation())
+        return
+    if not pdf_access(api,cid,store,kind):return
+    filename=('programy-pro' if kind=='pro' else 'povnyi-rozbir')+'-'+birth.replace('.','-')+'.pdf'
+    api.call('sendDocument',{'chat_id':cid,'caption':PDF_TITLES[kind]+' · '+birth,
+                            'reply_markup':pdf_navigation()},('document',data,filename))
+    if store.section(cid) in PDF_SECTIONS:store.set_section(cid,'portrait')
+
+
 def show_karma(api,cid,birth,store):
     result = calculate_karma(birth)
     active = has_full_access(store,cid)
@@ -954,6 +1014,10 @@ def handle(api, update, store, prices):
         action = args[0]
         if action == 'home': show_home(api,cid,store); return
         if action == 'info': show_welcome(api,cid); return
+        if action=='pdf_menu' and len(args)==1:show_pdf_menu(api,cid);return
+        if action=='pdf':
+            if len(args)==2 and args[1] in PDF_TITLES:show_pdf(api,cid,store,args[1])
+            return
         if action == 'section':
             if len(args) == 2: show_section(api,cid,args[1],store,prices)
             return
@@ -1075,6 +1139,7 @@ def handle(api, update, store, prices):
             show_access(api,cid,store)
         return
     if command == '/info': show_welcome(api,cid); return
+    if command == '/pdf': show_pdf_menu(api,cid); return
     if command in ('/help','/menu'):
         show_home(api,cid,store); return
     if command in ('/year','/month','/day'):
@@ -1117,6 +1182,17 @@ def handle(api, update, store, prices):
     if command == '/access': show_access(api,cid,store); return
     if store.section(cid) == 'compatibility':
         receive_compatibility_dates(api,cid,text,store); return
+    section=store.section(cid)
+    if section in PDF_SECTIONS:
+        kind=PDF_SECTIONS[section]
+        if not pdf_access(api,cid,store,kind):return
+        try:
+            if kind=='full' and store.current_birth(cid) and not any(c.isdigit() for c in text):
+                store.set_money_name(cid,text)
+            else:
+                store.set_current_birth(cid,text)
+        except ValueError as e:api.say(cid,str(e));return
+        show_pdf(api,cid,store,kind);return
     try: calculated,_ = calculate(text)
     except ValueError as e:
         if store.section(cid) == 'money' and store.current_birth(cid) and not any(c.isdigit() for c in text):
@@ -1170,7 +1246,7 @@ def main():
     api.call('getMe')
     if api.call('getWebhookInfo').get('url'):
         raise SystemExit('У бота вже налаштований webhook. Вимкніть його перед запуском polling.')
-    commands = [('start','Головне меню'),('menu','Розділи бота'),('info','Про бота та консультації'),('portrait','Портрет'),('karma','Карма +/−'),('social','Соціальне призначення'),('money','Грошове призначення'),('matrix','Матриця'),('year','Прогноз на роки'),('month','Прогноз на місяці'),('day','Прогноз на день'),('compatibility','Сумісність'),('packages','Пакети Повний / Pro'),('programs','21 програма · Pro'),('forgetdate','Видалити поточну дату'),('access','Мій доступ'),('purchases','Попередні покупки'),('myid','Мій Telegram ID'),('terms','Умови покупки'),
+    commands = [('start','Головне меню'),('menu','Розділи бота'),('pdf','PDF-файли'),('info','Про бота та консультації'),('portrait','Портрет'),('karma','Карма +/−'),('social','Соціальне призначення'),('money','Грошове призначення'),('matrix','Матриця'),('year','Прогноз на роки'),('month','Прогноз на місяці'),('day','Прогноз на день'),('compatibility','Сумісність'),('packages','Пакети Повний / Pro'),('programs','21 програма · Pro'),('forgetdate','Видалити поточну дату'),('access','Мій доступ'),('purchases','Попередні покупки'),('myid','Мій Telegram ID'),('terms','Умови покупки'),
                 ('paysupport','Допомога з оплатою'),('privacy','Обробка даних')]
     api.call('setMyCommands',{'commands':[{'command':c,'description':d} for c,d in commands]})
     offset = store.offset()

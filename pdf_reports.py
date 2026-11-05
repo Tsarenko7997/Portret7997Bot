@@ -4,12 +4,14 @@ from io import BytesIO
 from pathlib import Path
 from xml.sax.saxutils import escape
 
+from PIL import Image as RasterImage
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
+from reportlab.lib.utils import ImageReader
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from reportlab.platypus import Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer
+from reportlab.platypus import Flowable, Image, PageBreak, Paragraph, SimpleDocTemplate, Spacer
 
 from catalog import CTA, CONTACTS, TELEGRAM_HANDLE, description
 from forecast_catalog import forecast_description
@@ -30,6 +32,34 @@ RULE=colors.HexColor('#E5DFF0')
 MARGIN=48
 FULL_SECTIONS=('Портрет · 33 позиції','Матриця','Соціальне призначення',
                'Грошове призначення','Плюсова карма','Мінусова карма','Прогнози')
+KARMA_INTRO='У цій нумерологічній методиці карма - це те, що Ви принесли з минулого життя як досвід у теперішнє. Вона охоплює як здібності й можливості, так і уроки, до яких Ви можете повертатися.'
+KARMA_TYPES={
+    'positive': 'Плюсова (позитивна) карма описує Ваші природні таланти, можливості та підтримку, які можуть полегшувати шлях до реалізації. Ці якості можна помічати, розвивати й використовувати у своїх справах.',
+    'negative': 'Мінусова (негативна) карма нагадує про помилки минулого й уроки, які можуть проявлятися через повторювані ситуації. Такі ситуації допомагають помітити звичні реакції та спробувати діяти інакше, щоб вони менше обмежували Вас.',
+}
+
+
+class PortraitSheet(Flowable):
+    """Fill A4 while keeping the original diagram's proportions."""
+    def __init__(self,data):
+        super().__init__()
+        self.width=self.height=1
+        with RasterImage.open(BytesIO(data)) as original:
+            width,height=original.size
+            page_width=round(height*A4[0]/A4[1])
+            left=(page_width-width)//2
+            right=page_width-width-left
+            # Extend only the outermost background columns, leaving the artwork intact.
+            sheet=RasterImage.new('RGB',(page_width,height))
+            sheet.paste(original.crop((0,0,1,height)).resize((left,height)),(0,0))
+            sheet.paste(original,(left,0))
+            sheet.paste(original.crop((width-1,0,width,height)).resize((right,height)),(left+width,0))
+        self.sheet=ImageReader(sheet)
+
+    def draw(self):
+        self.canv.bookmarkPage('section1')
+        self.canv.resetTransforms()
+        self.canv.drawImage(self.sheet,0,0,*A4)
 
 
 def _reading(text):
@@ -95,7 +125,10 @@ class Report:
         out=BytesIO()
         doc=SimpleDocTemplate(out,pagesize=A4,leftMargin=MARGIN,rightMargin=MARGIN,
                               topMargin=55,bottomMargin=48,title=self.title,author='Надія Царенко')
+        has_portrait_sheet=any(isinstance(item,PortraitSheet) for item in self.story)
         def frame(canvas,document):
+            if has_portrait_sheet and document.page==2:
+                return
             width,height=A4
             canvas.saveState()
             canvas.setStrokeColor(RULE)
@@ -131,8 +164,8 @@ def build_full_pdf(birth,name,today):
     portrait,_=calculate(birth)
     money=calculate_money(birth,name)
     pdf=Report('Ваш повний нумерологічний розбір',birth,FULL_SECTIONS,money['name'],today)
-    pdf.chapter(1,FULL_SECTIONS[0])
-    pdf.image(draw_portrait(birth,portrait),420,575)
+    pdf.story.extend([PortraitSheet(draw_portrait(birth,portrait)),PageBreak()])
+    pdf.add(FULL_SECTIONS[0],'chapter')
     for n in range(1,34):
         heading,*body=_reading(description(n,birth,portrait)).split('\n\n')
         pdf.add(heading.split('\n',1)[0],'heading')
@@ -165,6 +198,11 @@ def build_full_pdf(birth,name,today):
     karma=calculate_karma(birth)
     for chapter,kind,describe in ((5,'positive',positive_description),(6,'negative',negative_description)):
         pdf.chapter(chapter,FULL_SECTIONS[chapter-1])
+        if kind=='positive':
+            pdf.add('Що таке карма?','heading')
+            pdf.add(KARMA_INTRO)
+        pdf.add('Що таке '+FULL_SECTIONS[chapter-1].lower()+'?','heading')
+        pdf.add(KARMA_TYPES[kind])
         for arcanum in unique_karma(karma[kind]):
             # The first block is the chat heading with a position and date.
             _,body=_reading(describe(1,arcanum,birth)).split('\n\n',1)
